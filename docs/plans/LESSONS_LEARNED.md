@@ -150,3 +150,39 @@
   2. Guard `"${HOME:-}"` consistently across both condition checks and `exec` statements in POSIX `set -eu` scripts.
   3. Keep `overflow: clip;` on `.pulse-progress` and `height: 100dvh; max-height: 100dvh; overflow: hidden;` on `.pulse-app` (`#pulse-app`).
 - **Verified By**: [`scripts/preview-ui.mjs`](../../scripts/preview-ui.mjs) lines 15–39 & 196–200; [`bin/agy-pulse`](../../bin/agy-pulse) lines 21–23; [`sidecars/pulse_cockpit/styles.css`](../../sidecars/pulse_cockpit/styles.css) lines 264–290 & 471–482; `tests/contracts/manifest-contracts.test.ts` ephemeral `--port 0` / `--port=0` / `PORT=0` subprocess assertions.
+
+---
+
+## `L-013`: `esbuild` CJS Test-Bundle Hoisting of `require.main === module`
+
+- **Symptom**: Running `node --test` on `esbuild`-compiled `.test-dist/*.test.cjs` bundles hangs waiting on `stdin` (`readFileSync(0, 'utf8')`) or executes CLI startup side effects whenever a test file imports a CLI/hook entrypoint module (such as `src/hook/hook-probe.ts`, and prospectively Stage 3 `src/cli/main.ts` and `src/mcp/server.ts`) guarded solely by `if (require.main === module)`.
+- **Root Cause**: [`scripts/build-tests.mjs`](../../scripts/build-tests.mjs) bundles each `tests/**/*.test.ts` together with all imported `src/**` files into a single self-contained `.cjs` bundle (`format: 'cjs'`). When `node --test` executes `.test-dist/<subpath>--<name>.test.cjs`, that single test bundle *is* `require.main === module`, so `require.main === module` evaluates `true` for every source module inlined inside it—triggering `runHookCli()` inside unit tests. Adding `process.env` opt-out flags to tests would be fragile and risk mutating or breaking spawned child binary smoke/benchmark tests.
+- **Actionable Prevention Rule**:
+  1. Gate every CLI, hook, and MCP entrypoint (`src/hook/hook-probe.ts`, Stage 3 `src/cli/main.ts`, `src/mcp/server.ts`) on BOTH `require.main === module` AND `require.main?.filename` matching the dedicated entrypoint filename: `typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module && typeof require.main?.filename === 'string' && /(?:^|[\\/])<entrypoint>\.(?:c?js|mjs|ts)$/i.test(require.main.filename)`.
+  2. Never rely on test-only environment variable skips that could mask real subprocess execution paths.
+- **Verified By**: [`src/hook/hook-probe.ts`](../../src/hook/hook-probe.ts) lines 725–734 (`/(?:^|[\\/])hook-probe\.(?:c?js|mjs|ts)$/i`); [`tests/unit/hook-probe.test.ts`](../../tests/unit/hook-probe.test.ts) & [`tests/benchmarks/hook-latency.test.ts`](../../tests/benchmarks/hook-latency.test.ts) (both in-process imports and real spawned `dist/hook-probe.cjs` runs passing cleanly).
+
+---
+
+## `L-014`: Cross-Stage CSS/DOM Selector Contract Parity & `inline-flex` Ellipsis (`V1`–`V5` Visual QA)
+
+- **Symptom**: Initial Stage 1 headless browser visual QA (`V1`–`V5` at `360×820` and `420×820`) surfaced four layout/styling defects: (1) phase dots and model tier badges fell back to neutral colors instead of distinct Flexoki Light/Dark tiers, and `<progress data-level="critical_85">` (`88.4%` CTX) remained blue instead of coral red; (2) `.pulse-main` / `.pulse-hud-scroll` scroll containers displayed unwanted focus outline rings; (3) narrow `360px` agent cards crushed `.pulse-node-title` down to a single character; and (4) `inline-flex` `.pulse-node-model-btn` pills clipped overflowing model names abruptly instead of rendering a clean `…` ellipsis.
+- **Root Cause**:
+  1. Stage 0 CSS authored `.pulse-tier-*` class rules before Stage 1 `hud-view.ts` rendered `data-tier`, `data-level`, and `data-phase` attribute hooks; meanwhile native `<progress>` shadow pseudo-elements (`::-webkit-progress-value` and `::-moz-progress-bar`) require strictly separate vendor blocks routed via `--pulse-progress-fill` per `[data-level]`.
+  2. Unbudgeted `360px` card row flex widths let `.pulse-node-actions` starve `.pulse-node-title`, and `text-overflow: ellipsis` does not reliably render directly on a `display: inline-flex` `<button>` element unless the text lives inside an inner block child (`<span class="pulse-btn-label">`).
+  3. `scrollbar-gutter: stable` wasted horizontal space on `360px` sidecars and default browser `:focus` outlines on `.pulse-main` / `.pulse-hud-scroll` highlighted non-button scroll regions.
+- **Actionable Prevention Rule**:
+  1. Bind semantic CSS rules explicitly to both classes and `data-*` attributes (`[data-tier]`, `[data-level]`, `[data-phase]`), drive `<progress>` colors via `--pulse-progress-fill` in strictly ungrouped `::-webkit-progress-value` / `::-moz-progress-bar` blocks, and assert computed Flexoki RGB values and `<progress>` threshold fills during visual QA.
+  2. Suppress focus outlines on scroll containers (`.pulse-main:focus`, `.pulse-hud-scroll:focus`) without suppressing interactive `:focus-visible` rings, omit `scrollbar-gutter: stable`, enforce `@media (max-width: 420px)` / `(max-width: 390px)` row budgets so `360px` card titles never collapse, and wrap truncated pill text inside `<span class="pulse-btn-label">` (`display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0`).
+- **Verified By**: [`sidecars/pulse_cockpit/styles.css`](../../sidecars/pulse_cockpit/styles.css) lines 450–544, 612–685, 851–856, 1030–1085, 1234–1262; [`src/ui/hud-view.ts`](../../src/ui/hud-view.ts) lines 469–495; `S1-QA` (`48de57b4`) `V1`–`V5` browser screenshots (`0` console/page errors, `scrollWidth === clientWidth`, crisp `…` ellipsis).
+
+---
+
+## `L-015`: Sequential Benchmark Isolation (`D-009`) & Deterministic Headless Preview Theme/Scenario Hooks
+
+- **Symptom**: (1) Running child-spawning `contracts/` and `e2e/` test suites in parallel with `tests/benchmarks/hook-latency.test.ts` injected `~30ms` CPU scheduler jitter, pushing `OS fork+exec` hook startup from `~38–44ms` to `~72ms`; (2) restricted headless browser sandboxes that disallow `page.emulateMedia()` could not toggle Dark Mode via OS `(prefers-color-scheme: dark)` media queries alone, and multi-scenario browser requests without explicit per-request `?scenario=` routing collided on shared preview state or threw in `computePreviewEtag()` when non-HUD responses lacked `treeNodes`.
+- **Root Cause**: Concurrent `node --test` workers saturating CPU cores distort wall-clock OS `fork+exec` microbenchmarks; meanwhile `src/ui/main.ts` previously ignored URL `?theme=` parameters and `scripts/preview-ui.mjs` lacked per-request `?scenario=` + `Referer` fallback resolution and array-guarded ETag normalization.
+- **Actionable Prevention Rule**:
+  1. Run functional test suites (`unit`, `contracts`, `e2e`) in parallel and `benchmarks--*.test.cjs` sequentially afterward (`D-009`) while keeping `D-004` thresholds (`<= 8.0ms` JS / `<= 50.0ms` OS) untouched.
+  2. Support `?theme=dark|light` query override in [`src/ui/main.ts`](../../src/ui/main.ts) (`getThemeQueryOverride`) and per-request `?scenario=` + `Referer` scenario resolution plus `Array.isArray(semantic.treeNodes)` guards in [`scripts/preview-ui.mjs`](../../scripts/preview-ui.mjs) so headless cross-theme/cross-scenario QA remains deterministic across sandboxes.
+- **Verified By**: [`package.json`](../../package.json) line 49 (`D-009`); [`src/ui/main.ts`](../../src/ui/main.ts) lines 32–59; [`scripts/preview-ui.mjs`](../../scripts/preview-ui.mjs) lines 621–685; [`tests/e2e/stage1-acceptance.test.ts`](../../tests/e2e/stage1-acceptance.test.ts) & [`tests/benchmarks/hook-latency.test.ts`](../../tests/benchmarks/hook-latency.test.ts).

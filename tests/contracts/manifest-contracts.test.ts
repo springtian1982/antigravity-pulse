@@ -498,10 +498,11 @@ describe('runtime smoke tests: hook-probe, cli, mcp & inode-preserving installer
         treeNodes: unknown[];
         warnings: string[];
       };
-      assert.equal(apiBody.etag, 'stage0');
-      assert.equal(apiBody.hostConnected, false);
-      assert.ok(Array.isArray(apiBody.treeNodes));
-      assert.ok(apiBody.warnings.includes('Preview mode (Stage 0 stub)'));
+      assert.equal(typeof apiBody.etag, 'string');
+      assert.equal(apiBody.etag.length, 6);
+      assert.equal(typeof apiBody.hostConnected, 'boolean');
+      assert.ok(Array.isArray(apiBody.treeNodes) && apiBody.treeNodes.length > 0);
+      assert.ok(Array.isArray(apiBody.warnings));
     });
 
     await withPreviewServer(['--port=0'], {}, async (baseUrl) => {

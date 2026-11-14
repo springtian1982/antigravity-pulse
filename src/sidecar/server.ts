@@ -1,21 +1,37 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import type { Server } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Response, SidecarApp } from 'sidecar_sdk';
-import { ConfigValidationError, loadConfig, updateConfigPartial } from '../state/config-store';
-import { isValidUuid, resolveStateDir } from '../state/state-dir';
+import { ConfigValidationError, validateConfigPatch } from '../state/config-store';
+import { isValidUuid } from '../state/state-dir';
 import type {
   FleetSnapshotResponse,
   HudSnapshotResponse,
-  QuotaSummaryView,
+  PulseUserConfig,
   TimelineSnapshotResponse,
   UnchangedEtagResponse,
 } from '../types/telemetry';
+import {
+  type LsClientLike,
+  TelemetryEngine,
+  type TelemetryEngineOptions,
+} from './telemetry-engine';
 
 export const STRICT_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors *";
 
-const STAGE0_ETAG = 'stage0';
+export interface PulseSidecarServerOptions extends TelemetryEngineOptions {
+  lsClient?: LsClientLike;
+  autoStartEngine?: boolean;
+}
+
+export interface PulseSidecarServerHandle {
+  app: SidecarApp;
+  engine: TelemetryEngine;
+  start(): Promise<Server>;
+  stop(): Promise<void>;
+}
 
 function resolveSidecarRoot(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -26,34 +42,50 @@ function resolveSidecarRoot(): string {
   return path.resolve(here, '..', '..', 'sidecars', 'pulse_cockpit');
 }
 
-function createEmptyQuotaSummary(nowIso: string): QuotaSummaryView {
-  return {
-    fetchedAt: nowIso,
-    buckets: [],
-    gemini5h: null,
-    geminiWeekly: null,
-    thirdParty5h: null,
-    thirdPartyWeekly: null,
-    treeNetDelta5hPct: null,
-    burnRate5hPctPerMin: null,
-  };
-}
-
 function make400Json(message: string): Response {
   return new Response(JSON.stringify({ error: message }), {
     status: 400,
     contentType: 'application/json',
+    headers: {
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'no-store',
+    },
   });
 }
 
-function makeUnchanged(etag: string): UnchangedEtagResponse {
-  return { unchanged: true, etag };
+function injectHtmlViewAttribute(html: string, view: 'hud' | 'fleet'): string {
+  if (/data-view="(?:hud|fleet)"/.test(html)) {
+    return html.replace(/data-view="(?:hud|fleet)"/, `data-view="${view}"`);
+  }
+  return html.replace(/<div\s+id="pulse-app"/, `<div id="pulse-app" data-view="${view}"`);
 }
 
-export function createPulseSidecarServer(): SidecarApp {
+function validateAllowedConfigPostKeys(payload: Record<string, unknown>): void {
+  const keys = Object.getOwnPropertyNames(payload);
+  if (keys.length === 0) {
+    throw new ConfigValidationError('Empty config patch');
+  }
+  const allowedPostKeys = new Set([
+    'inlineStampMode',
+    'hudSortMode',
+    'timelineScope',
+    'smartThresholds',
+    'pollIntervalsMs',
+  ]);
+  for (const key of keys) {
+    if (!allowedPostKeys.has(key)) {
+      throw new ConfigValidationError(`Disallowed or unknown config patch field: ${key}`);
+    }
+  }
+}
+
+export async function createPulseSidecarServer(
+  options: PulseSidecarServerOptions = {}
+): Promise<PulseSidecarServerHandle> {
   const startedAt = Date.now();
   const sidecarRoot = resolveSidecarRoot();
   const app = new SidecarApp();
+  const engine = new TelemetryEngine(options);
 
   const readAsset = (relPath: string): string | null => {
     const fullPath = path.join(sidecarRoot, relPath);
@@ -63,10 +95,11 @@ export function createPulseSidecarServer(): SidecarApp {
     return readFileSync(fullPath, 'utf8');
   };
 
-  const serveHtmlPage = (): Response => {
-    const html =
+  const serveHtmlPage = (view: 'hud' | 'fleet'): Response => {
+    const rawHtml =
       readAsset('index.html') ??
       '<!doctype html><html><head><meta charset="utf-8"><title>Model Pulse</title></head><body><div id="pulse-app" class="pulse-app" data-view="hud" data-theme-mode="auto"><main id="app" class="pulse-main" aria-live="polite">Model Pulse loading...</main></div></body></html>';
+    const html = injectHtmlViewAttribute(rawHtml, view);
     return new Response(html, {
       status: 200,
       contentType: 'text/html; charset=utf-8',
@@ -78,9 +111,9 @@ export function createPulseSidecarServer(): SidecarApp {
     });
   };
 
-  app.page('/', serveHtmlPage);
-  app.page('/hud', serveHtmlPage);
-  app.page('/fleet', serveHtmlPage);
+  app.page('/', () => serveHtmlPage('hud'));
+  app.page('/hud', () => serveHtmlPage('hud'));
+  app.page('/fleet', () => serveHtmlPage('fleet'));
 
   app.page('/styles.css', () => {
     const css = readAsset('styles.css');
@@ -122,23 +155,32 @@ export function createPulseSidecarServer(): SidecarApp {
 
   app.api(
     '/api/health',
-    () => ({
-      ok: true,
-      version: '0.1.0',
-      lsConnected: false,
-      stateDir: resolveStateDir(),
-      uptimeMs: Date.now() - startedAt,
-    }),
+    () => {
+      const health = engine.getHealthInfo();
+      return {
+        ok: true,
+        version: '0.1.0',
+        lsConnected: health.lsConnected,
+        stateDir: health.stateDir,
+        activeConversationId: health.activeConversationId,
+        uptimeMs: Date.now() - startedAt,
+      };
+    },
     'GET'
   );
 
-  app.api('/api/config', () => loadConfig(), 'GET');
+  app.api('/api/config', () => engine.getConfig(), 'GET');
 
   app.api(
     '/api/config',
-    (data) => {
+    (data): PulseUserConfig | Response => {
       try {
-        return updateConfigPartial(data);
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+          return make400Json('Config patch must be a JSON object');
+        }
+        validateAllowedConfigPostKeys(data);
+        validateConfigPatch(data);
+        return engine.updateConfig(data);
       } catch (err) {
         if (err instanceof ConfigValidationError) {
           return make400Json(err.message);
@@ -156,30 +198,10 @@ export function createPulseSidecarServer(): SidecarApp {
       if (rawCid && !isValidUuid(rawCid)) {
         return make400Json('Invalid conversationId UUID');
       }
-      if (typeof data.etag === 'string' && data.etag.trim() === STAGE0_ETAG) {
-        return makeUnchanged(STAGE0_ETAG);
-      }
-      const nowIso = new Date().toISOString();
-      return {
-        etag: STAGE0_ETAG,
-        generatedAt: nowIso,
-        hostConnected: false,
-        activeConversationId: rawCid || app.config.conversationId || null,
-        rootCascadeId: null,
-        breadcrumb: [],
-        activeNode: null,
-        treeNodes: [],
-        smartGovernanceBanner: {
-          active: false,
-          heavyConcurrentCount: 0,
-          gemini5hRemainingPct: null,
-          estimatedBurnPctPerMin: null,
-          message: null,
-        },
-        quota: createEmptyQuotaSummary(nowIso),
-        config: loadConfig(),
-        warnings: ['Stage 0 scaffold active: awaiting Stage 1 telemetry engine.'],
-      };
+      const hostCid = app.config.conversationId?.trim() ?? '';
+      const requestedCid = rawCid || (isValidUuid(hostCid) ? hostCid : null);
+      const clientEtag = typeof data.etag === 'string' ? data.etag.trim() : undefined;
+      return engine.getHudSnapshot(requestedCid, clientEtag);
     },
     'GET'
   );
@@ -195,16 +217,10 @@ export function createPulseSidecarServer(): SidecarApp {
       if (rawScope !== 'conversation' && rawScope !== 'tree') {
         return make400Json('Invalid timeline scope: expected conversation | tree');
       }
-      if (typeof data.etag === 'string' && data.etag.trim() === STAGE0_ETAG) {
-        return makeUnchanged(STAGE0_ETAG);
-      }
-      return {
-        etag: STAGE0_ETAG,
-        generatedAt: new Date().toISOString(),
-        rootCascadeId: null,
-        scope: rawScope,
-        turns: [],
-      };
+      const hostCid = app.config.conversationId?.trim() ?? '';
+      const requestedCid = rawCid || (isValidUuid(hostCid) ? hostCid : null);
+      const clientEtag = typeof data.etag === 'string' ? data.etag.trim() : undefined;
+      return engine.getTimelineSnapshot(requestedCid, rawScope, clientEtag);
     },
     'GET'
   );
@@ -212,36 +228,60 @@ export function createPulseSidecarServer(): SidecarApp {
   app.api(
     '/api/fleet',
     (data): FleetSnapshotResponse | UnchangedEtagResponse => {
-      if (typeof data.etag === 'string' && data.etag.trim() === STAGE0_ETAG) {
-        return makeUnchanged(STAGE0_ETAG);
-      }
-      const nowIso = new Date().toISOString();
-      return {
-        etag: STAGE0_ETAG,
-        generatedAt: nowIso,
-        hostConnected: false,
-        activeHeadline: {
-          runningRoots: 0,
-          runningSubagents: 0,
-          totalRunningNodes: 0,
-          modelHistogram: [],
-        },
-        projects: [],
-        topQuotaBurners: [],
-        quota: createEmptyQuotaSummary(nowIso),
-      };
+      const clientEtag = typeof data.etag === 'string' ? data.etag.trim() : undefined;
+      return engine.getFleetSnapshot(clientEtag);
     },
     'GET'
   );
 
-  return app;
+  if (options.autoStartEngine !== false) {
+    await engine.start();
+  }
+
+  return {
+    app,
+    engine,
+    async start() {
+      await engine.start();
+      return app.run();
+    },
+    async stop() {
+      engine.stop();
+      await app.close();
+    },
+  };
 }
 
-const isEntryPoint =
-  Boolean(process.argv[1]) &&
-  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+function isServerEntryPoint(): boolean {
+  const argv1 = process.argv[1];
+  if (!argv1) {
+    return false;
+  }
+  try {
+    const resolved = realpathSync(argv1);
+    return (
+      import.meta.url === pathToFileURL(resolved).href &&
+      /(?:^|[\\/])server\.(?:m?js|cjs|ts)$/i.test(resolved)
+    );
+  } catch {
+    return false;
+  }
+}
 
-if (isEntryPoint) {
-  const server = createPulseSidecarServer();
-  void server.run();
+if (isServerEntryPoint()) {
+  createPulseSidecarServer({ autoStartEngine: false })
+    .then(async (handle) => {
+      const shutdown = () => {
+        void handle.stop().finally(() => {
+          process.exit(0);
+        });
+      };
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
+      await handle.start();
+    })
+    .catch((err) => {
+      console.error('[pulse_cockpit] Fatal startup error:', err);
+      process.exit(1);
+    });
 }

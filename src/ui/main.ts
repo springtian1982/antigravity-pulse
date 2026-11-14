@@ -1,4 +1,5 @@
-type PulseView = 'hud' | 'fleet';
+import { mountPulseUi, resolvePulseViewMode, type PulseViewMode } from './state';
+
 type ResolvedTheme = 'light' | 'dark';
 
 function parseHexColorLuminance(colorValue: string): number | null {
@@ -28,7 +29,26 @@ function parseHexColorLuminance(colorValue: string): number | null {
   return null;
 }
 
-function detectResolvedTheme(mediaDark: boolean, hostBg?: string): ResolvedTheme {
+function getThemeQueryOverride(): ResolvedTheme | undefined {
+  try {
+    const raw = new URLSearchParams(window.location.search).get('theme')?.trim().toLowerCase();
+    if (raw === 'dark' || raw === 'light') {
+      return raw;
+    }
+  } catch {
+    // Ignore malformed query string
+  }
+  return undefined;
+}
+
+function detectResolvedTheme(
+  mediaDark: boolean,
+  hostBg?: string,
+  queryOverride?: ResolvedTheme
+): ResolvedTheme {
+  if (queryOverride === 'dark' || queryOverride === 'light') {
+    return queryOverride;
+  }
   if (hostBg) {
     const lum = parseHexColorLuminance(hostBg);
     if (lum !== null) {
@@ -38,69 +58,24 @@ function detectResolvedTheme(mediaDark: boolean, hostBg?: string): ResolvedTheme
   return mediaDark ? 'dark' : 'light';
 }
 
-function applyResolvedTheme(theme: ResolvedTheme): void {
+function applyResolvedTheme(theme: ResolvedTheme, view: PulseViewMode): void {
   document.documentElement.setAttribute('data-resolved-theme', theme);
   const rootWrapper = document.getElementById('pulse-app');
   if (rootWrapper) {
     rootWrapper.setAttribute('data-resolved-theme', theme);
-  }
-}
-
-function resolveCurrentView(): PulseView {
-  return window.location.pathname.startsWith('/fleet') ? 'fleet' : 'hud';
-}
-
-function renderStage0Shell(view: PulseView, theme: ResolvedTheme): void {
-  const rootWrapper = document.getElementById('pulse-app');
-  if (rootWrapper) {
     rootWrapper.setAttribute('data-view', view);
   }
-
-  const appMount = document.getElementById('app');
-  if (!appMount) return;
-
-  appMount.replaceChildren();
-
-  const card = document.createElement('section');
-  card.className = 'pulse-hero pulse-boot';
-  card.setAttribute('role', 'status');
-
-  const headerRow = document.createElement('div');
-  headerRow.className = 'pulse-health-row';
-
-  const dot = document.createElement('span');
-  dot.className = 'pulse-phase-dot';
-  dot.setAttribute('data-phase', 'scanning');
-  dot.setAttribute('aria-hidden', 'true');
-
-  const title = document.createElement('span');
-  title.className = 'pulse-title';
-  title.textContent = view === 'fleet' ? 'Pulse Fleet' : 'Model Pulse';
-
-  const badge = document.createElement('span');
-  badge.className = 'pulse-pill pulse-tier-workhorse tabular-nums';
-  badge.textContent = view === 'fleet' ? 'FLEET · STAGE 0' : 'HUD · STAGE 0';
-
-  headerRow.append(dot, title, badge);
-
-  const subtitle = document.createElement('p');
-  subtitle.className = 'pulse-boot-message';
-  const cid = window.sidecar?.conversationId ?? 'standalone';
-  subtitle.textContent = `View: ${view} · Theme: ${theme} · Conversation: ${cid}`;
-
-  card.append(headerRow, subtitle);
-  appMount.append(card);
 }
 
 function bootstrap(): void {
-  const view = resolveCurrentView();
+  const view = resolvePulseViewMode();
   const darkMedia = window.matchMedia('(prefers-color-scheme: dark)');
   let lastHostBg: string | undefined;
 
   const syncTheme = (): void => {
-    const resolved = detectResolvedTheme(darkMedia.matches, lastHostBg);
-    applyResolvedTheme(resolved);
-    renderStage0Shell(view, resolved);
+    const queryOverride = getThemeQueryOverride();
+    const resolved = detectResolvedTheme(darkMedia.matches, lastHostBg, queryOverride);
+    applyResolvedTheme(resolved, view);
   };
 
   darkMedia.addEventListener('change', syncTheme);
@@ -119,6 +94,8 @@ function bootstrap(): void {
   });
 
   syncTheme();
+  const mountRoot = document.getElementById('app') ?? document.body;
+  mountPulseUi(mountRoot);
 }
 
 if (document.readyState === 'loading') {

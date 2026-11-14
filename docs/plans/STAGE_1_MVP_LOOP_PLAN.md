@@ -5,7 +5,7 @@
 > **Canonical Blueprint**: [`00_MASTER_IMPLEMENTATION_BLUEPRINT.md`](./00_MASTER_IMPLEMENTATION_BLUEPRINT.md)  
 > **Canonical PRD**: [`docs/PRODUCT_DESIGN.md`](../PRODUCT_DESIGN.md)  
 > **Companion Ledgers**: [`DECISION_LOG.md`](./DECISION_LOG.md) · [`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md)  
-> **Status**: Planning Complete (MISSION I — Step M1.2); Pending MISSION II Execution  
+> **Status**: `[x] Done` *(MISSION II Stage 1 `VERDICT: APPROVED` by `S1-QA` `48de57b4`)*  
 
 ---
 
@@ -485,7 +485,7 @@ Reads `$PULSE_STATE_DIR/config.json` (default `inlineStampMode: 'smart'`), `$PUL
     - `setHudSortMode('active-first' | 'topology-tree')` & `setInlineStampMode('smart' | 'every-turn' | 'off')`: optimistic UI update + `POST /api/config`.
 - **`src/ui/hud-view.ts`** (strictly XSS-safe: all strings escaped via `escapeHtml()` or `textContent`):
   - **1. Sticky Active Session Hero Card (`.pulse-hero`, ~88px compact height)**:
-    - Breadcrumb bar (only when `activeNode?.parentCascadeId` or `breadcrumb.length > 1`): `Root Title › Role` + `[← 父会话]` button (`data-action="jump-parent"` -> `toggleConversation(parentCascadeId)`).
+    - Breadcrumb bar (only when `activeNode?.parentCascadeId` or `breadcrumb.length > 1`): `Root Title › Role` + `[← 父会话]` button (`data-action="jump-node"`, `data-cid="${parentCid}"` -> `toggleConversation(parentCascadeId)`).
     - Top Status Line: Breathing phase dot + live stopwatch / rate (`🟣 Thinking · 18.4s` / `🟢 Streaming · 46 tok/s` / `🔵 Tool: run_command · 4.1s` / `⏸️ 等待审批 · 6.2s` / `⚠ Error / Quota` / `⚪ Idle · 上轮完成于 12s 前`).
     - Dual Model Nameplate (`Requested ➔ Served`):
       - `matched`: **`Gemini 4 Carbon`** `[HIGH]` · `✓ gemini-4-carbon`
@@ -612,29 +612,34 @@ git status --short
 
 ## Implementation Status & Results (MISSION II Backfill)
 
-> *Leave blank during MISSION I. Populated by `S1-A`, `S1-B`, `S1-C`, and `S1-QA` during MISSION II execution.*
+> *Populated at Stage 1 closeout following independent `S1-QA` (`48de57b4`) `VERDICT: APPROVED`.*
 
-- **Commit SHA**: `(pending MISSION II)`
+- **Audit Verdict**: `VERDICT: APPROVED` ([`STAGE_1_AUDIT.md`](./STAGE_1_AUDIT.md))
+- **Commit SHA**: Created atomically on `main` at Stage 1 closeout; exact SHA backfilled into [`00_MASTER_IMPLEMENTATION_BLUEPRINT.md`](./00_MASTER_IMPLEMENTATION_BLUEPRINT.md) §6 during Stage 2 closeout.
 - **Track Completion**:
-  - `S1-A`: `[ ] Pending`
-  - `S1-B`: `[ ] Pending`
-  - `S1-C`: `[ ] Pending`
-  - `S1-QA`: `[ ] Pending` (`docs/plans/STAGE_1_AUDIT.md`)
-- **Verbatim Gate Outputs**:
-  - `npm run typecheck`: `(pending)`
-  - `npm run build`: `(pending)`
-  - `npm test`: `(pending)`
-  - `node --test .test-dist/benchmarks--hook-latency.test.cjs`: `(pending)`
-  - `agy plugin validate . --json`: `(pending)`
-  - `npm run install:global && agy plugin validate ~/.gemini/config/plugins/antigravity-pulse --strict --json`: `(pending)`
-  - Visual Inspection (`V1`–`V5`): `(pending)`
+  - `S1-A`: `[x] Done` (`src/rpc/ls-client.ts`, `src/core/formatters.ts`, `src/core/model-catalog.ts`, `src/core/quota-calculator.ts`, `src/core/state-machine.ts`, `src/core/topology-builder.ts`, `src/core/etag.ts`, unit suites)
+  - `S1-B`: `[x] Done` (`src/hook/hook-probe.ts`, `dist/hook-probe.cjs`, `tests/unit/hook-probe.test.ts`, `tests/benchmarks/hook-latency.test.ts`)
+  - `S1-C`: `[x] Done` (`src/sidecar/telemetry-engine.ts`, `src/sidecar/server.ts`, `src/ui/main.ts`, `src/ui/state.ts`, `src/ui/hud-view.ts`, `sidecars/pulse_cockpit/styles.css`, `sidecars/pulse_cockpit/dist/server.mjs`, `sidecars/pulse_cockpit/dist/ui.js`, `scripts/preview-ui.mjs`, `tests/e2e/hud-loop.test.ts`)
+  - `S1-QA`: `[x] Done` (`tests/contracts/readonly-guard.test.ts`, `tests/e2e/stage1-acceptance.test.ts`, `V1`–`V5` browser QA, [`STAGE_1_AUDIT.md`](./STAGE_1_AUDIT.md))
+- **Verbatim Gate Outputs (Post-Remediation Master Gate Run)**:
+  - `npm run typecheck`: exited `0` (`tsc --noEmit` — 0 errors)
+  - `npm run build`: exited `0` (`[build] Compiled 5 bundles into dist/ and sidecars/pulse_cockpit/dist/`)
+  - `npm test`: exited `0` (`63/63` unit/contract/E2E pass across 17 suites + `2/2` sequential benchmark pass: `Metric 1 in-process JS (n=100): median=0.198ms p95=0.499ms max=1.454ms`; `Metric 2 OS fork+exec (n=10): median=42.692ms p95=45.869ms max=45.869ms`; `fail 0`, `skipped 0`)
+  - `node --test .test-dist/benchmarks--hook-latency.test.cjs`: exited `0` (`2/2` pass: `Metric 1 median=0.220ms p95=0.472ms max=1.799ms`; `Metric 2 median=43.999ms p95=49.352ms max=49.352ms`)
+  - `agy plugin validate . --json`: exited `0` (`components`: `agents: 0, hooks: 1, mcpServers: 1, rules: 0, sidecars: 1, skills: 1`, only expected `AGENTS.md` non-plugin-rule warning per `L-008`)
+  - `npm run install:global && agy plugin validate ~/.gemini/config/plugins/antigravity-pulse --strict --json`: exited `0` (`Installed 19 file(s) atomically`, `"findings": []`, `rules: 0`)
+  - `node scripts/verify-context.mjs`: exited `0` (`[verify-context] PASS`)
+  - `agy-pele check . --strict-mermaid`: exited `0` (`0 error(s), 0 warning(s)`)
+  - Visual Inspection (`V1`–`V5`): `PASS` across `360×820` & `420×820` Flexoki Light/Dark (`scrollWidth === clientWidth`, `0` console/page errors, verified Flexoki RGB tiers, Alert `88.4%` CTX red bar, Smart Governance Banner, `⚠ Retried ×2`, gray `Idle` dot, crisp `…` ellipsis)
 
 ---
 
 ## Stage Retrospectives & Pitfalls Encountered (MISSION II Backfill)
 
-> *Leave blank during MISSION I. Populated during MISSION II closeout; new empirical findings must also be appended to `docs/plans/LESSONS_LEARNED.md` (`L-008+`) and `docs/plans/DECISION_LOG.md` (`D-008+`).*
-
-- **Pitfalls Encountered & Fixes**: `(pending MISSION II)`
-- **Lessons Learned Appended (`L-*`)**: `(pending MISSION II)`
-- **Decisions Logged (`D-*`)**: `(pending MISSION II)`
+- **Pitfalls Encountered & Fixes**:
+  - **`esbuild` CJS `require.main === module` Hoisting (`L-013`)**: Bundling ESM source files into `.test-dist/*.test.cjs` caused `require.main === module` inside `src/hook/hook-probe.ts` to evaluate `true` under `node --test`, hanging on `stdin`; fixed cleanly by gating on `require.main === module && typeof require.main?.filename === 'string' && /(?:^|[\\/])hook-probe\.(?:c?js|mjs|ts)$/i.test(require.main.filename)` (pattern carried forward to Stage 3 `cli/main.ts` and `mcp/server.ts`).
+  - **CSS/DOM Semantic Parity & `inline-flex` Ellipsis (`L-014`)**: `[BLOCKING 1]` & `[Minor 3]` in `V1`–`V5` caught missing `[data-tier]` / `[data-level]` / `[data-phase]` selectors, unrouted `<progress>` thresholds, scroll focus outline rings, `360px` card title crushing, and abrupt `inline-flex` button clipping; fixed by pairing class + `data-*` selectors, `--pulse-progress-fill` over separated vendor `<progress>` selectors, `@media (max-width: 420px)`/`(max-width: 390px)` row budgets, and inner block `<span class="pulse-btn-label">` ellipsis wrappers.
+  - **Sequential Benchmark Isolation & Headless Preview Determinism (`D-009`, `L-015`)**: Concurrent child-spawning suites added `~30ms` CPU scheduler jitter against the unweakened `D-004` `<= 50.0ms` OS `fork+exec` budget (`~72ms` -> `42.692ms` after splitting `benchmarks--*.test.cjs` sequentially in `package.json`); added `?theme=dark|light` override in `src/ui/main.ts` plus `?scenario=` / `Referer` + array-guarded ETag hashing in `scripts/preview-ui.mjs`.
+  - **Monotonic `turnEpoch` (`[Minor 4]`) & Selector Parity (`[Minor 5]`)**: Fixed mixed numbered `PostInvocation` + unnumbered `Stop` / `PostInvocation` turn deduplication in `src/hook/hook-probe.ts` (`turnEpoch` regression test added) and aligned §4 `[← 父会话]` button selector docs (`data-action="jump-node"`).
+- **Lessons Learned Appended (`L-*`)**: [`L-013`](./LESSONS_LEARNED.md#l-013-esbuild-cjs-test-bundle-hoisting-of-requiremain--module), [`L-014`](./LESSONS_LEARNED.md#l-014-cross-stage-cssdom-selector-contract-parity--inline-flex-ellipsis-v1v5-visual-qa), [`L-015`](./LESSONS_LEARNED.md#l-015-sequential-benchmark-isolation-d-009--deterministic-headless-preview-themescenario-hooks)
+- **Decisions Logged (`D-*`)**: [`D-009`](./DECISION_LOG.md#d-009-sequential-benchmark-runner-isolation-in-packagejson-test-script)
