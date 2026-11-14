@@ -5,7 +5,7 @@
 > **Canonical PRD**: [`docs/PRODUCT_DESIGN.md`](../PRODUCT_DESIGN.md)  
 > **Companion Ledgers**: [`DECISION_LOG.md`](./DECISION_LOG.md) · [`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md)  
 > **Baseline Commit**: `87419f0` (`feat: initialize antigravity-pulse open-source repository and product design`)  
-> **Blueprint Status**: Active Master Contract (MISSION II Stage 0–2 `[x] Done` — Stage 2 `VERDICT: APPROVED`; Ready for Stage 3)
+> **Blueprint Status**: Completed & Verified (MISSION I & MISSION II Stage 0–3 + Docs Sync `[x] Done` — `FINAL-QA` `VERDICT: APPROVED`)
 
 ---
 
@@ -706,5 +706,5 @@ Every section, feature, metric, and guardrail from [`docs/PRODUCT_DESIGN.md`](..
 | **MISSION II — Stage 0** | Engineering & Stitch Design Foundation | `S0-A`, `S0-B`, `S0-QA` | `[x] Done` | `VERDICT: APPROVED` | `5ca47d4` | `17/17` tests pass, `findings: []` on strict install validation, `D-008`, `L-011`–`L-012`, [`STAGE_0_AUDIT.md`](./STAGE_0_AUDIT.md). |
 | **MISSION II — Stage 1** | MVP Live Telemetry Loop (`/hud` + `<8ms` Hook + RPC) | `S1-A`, `S1-B`, `S1-C`, `S1-QA` | `[x] Done` | `VERDICT: APPROVED` | `bbf1a68` | `63/63` unit/contract/E2E + `2/2` benchmark (`0.198ms` JS / `42.692ms` OS median), `V1`–`V5` Flexoki Light/Dark QA pass, `D-009`, `L-013`–`L-015`, [`STAGE_1_AUDIT.md`](./STAGE_1_AUDIT.md). |
 | **MISSION II — Stage 2** | Timeline Flame Axis & `/fleet` Global Sidebar | `S2-A`, `S2-B`, `S2-QA` | `[x] Done` | `VERDICT: APPROVED` | `71a621f` | `77/77` unit/contract/E2E + `2/2` benchmark (`0.153ms` JS / `40.598ms` OS median), `VIS-01`–`VIS-06` + `VIS-04-R`/`VIS-05-R`/`VIS-06-R` Flexoki Light/Dark QA pass, `L-016`, [`STAGE_2_AUDIT.md`](./STAGE_2_AUDIT.md). |
-| **MISSION II — Stage 3** | `agy-pulse` CLI, MCP Server, `SKILL.md` & Packaging | `S3-A`, `S3-B`, `S3-QA` | `[x] Done` | `VERDICT: APPROVED` | `(backfill SHA in Docs Sync)` | `108/108` unit/contract/E2E + `2/2` calibrated benchmarks (`0.196ms` JS / `45.839ms` OS, `bare=34.973ms`, `delta=9.420ms`), `NO_CRYPTO_IN_HOOK_OK`, `1571a09f` card visual QA, live `doctor` `5/5` + CLI/MCP probes, `D-010`, `L-017`–`L-021`, [`STAGE_3_AUDIT.md`](./STAGE_3_AUDIT.md). |
-| **MISSION II — Docs Sync & Release** | Docs parity check, installed `agy plugin validate --strict`, push | `DOC-1` + Referee | `[ ] Pending` | — | — | All 28 RTM rows verified passing. |
+| **MISSION II — Stage 3** | `agy-pulse` CLI, MCP Server, `SKILL.md` & Packaging | `S3-A`, `S3-B`, `S3-QA` | `[x] Done` | `VERDICT: APPROVED` | `4064b48` | `108/108` unit/contract/E2E + `2/2` calibrated benchmarks (`0.196ms` JS / `45.839ms` OS, `bare=34.973ms`, `delta=9.420ms`), `NO_CRYPTO_IN_HOOK_OK`, `1571a09f` card visual QA, live `doctor` `5/5` + CLI/MCP probes, `D-010`, `L-017`–`L-021`, [`STAGE_3_AUDIT.md`](./STAGE_3_AUDIT.md). |
+| **MISSION II — Docs Sync & Release** | Docs parity check, installed `agy plugin validate --strict`, push | `DOC-1` + `FINAL-QA` | `[x] Done` | `VERDICT: APPROVED` | `HEAD` (Closeout) | All 28 `RTM-01`–`RTM-28` rows & 8 release gates verified passing; [`FINAL_ACCEPTANCE_AUDIT_REPORT.md`](./FINAL_ACCEPTANCE_AUDIT_REPORT.md). |

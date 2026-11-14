@@ -1,16 +1,29 @@
 # Third-Party Notices
 
-`antigravity-pulse` (`agy-pulse`) adopts design specifications and iconographic assets from the following open-source projects. In accordance with their respective licenses, their copyright notices and license texts are reproduced below.
+`antigravity-pulse` (`Model Pulse` / `agy-pulse`) is distributed under the [MIT License](LICENSE) (`Copyright (c) 2026 springtian <springtian@gmail.com>`).
 
 ---
 
-## 1. Flexoki Color Scheme
+## 1. Zero Runtime npm Dependencies & SPDX Bundle Headers
+
+`antigravity-pulse` ships with **zero runtime `npm` dependencies** (`package.json` intentionally declares no `"dependencies"` field):
+
+- All five git-tracked prebuilt runtime bundles (`dist/hook-probe.cjs`, `dist/mcp.cjs`, `dist/cli.cjs`, `sidecars/pulse_cockpit/dist/server.mjs`, and `sidecars/pulse_cockpit/dist/ui.js`) execute exclusively against Node.js `>= 20` built-in modules (`node:fs`, `node:path`, `node:os`, `node:http`, `node:url`, `node:child_process`, `node:crypto` — explicitly excluded from `dist/hook-probe.cjs` per `D-010` — and optional `node:sqlite` via `process.getBuiltinModule('node:sqlite')` read-only `?mode=ro` fallback) and the host-provided Google Antigravity `sidecar_sdk` runtime (`external: ['sidecar_sdk']` in `server.mjs`).
+- Every prebuilt bundle carries the explicit SPDX copyright banner:
+  ```text
+  /* SPDX-License-Identifier: MIT | Copyright (c) 2026 springtian <springtian@gmail.com> */
+  ```
+- The plugin brand emblem (`assets/logo.svg`) is an original MIT-licensed SVG authored specifically for `antigravity-pulse`.
+
+---
+
+## 2. Flexoki Color Scheme (Design Specification Palette)
 
 - **Homepage**: <https://stephango.com/flexoki>
 - **Author**: Steph Ango (`@kepano`)
 - **License**: MIT License
 
-`antigravity-pulse` adopts the Flexoki Light and Dark inky color palettes across its Sidecar HUD (`AUX_PANE`), Fleet Monitor (`SIDEBAR`), and inline `<agent-embed>` telemetry cards for model-tier and status encoding:
+`antigravity-pulse` adopts the Flexoki Light and Dark warm-paper / obsidian color palettes across `DESIGN.md`, `sidecars/pulse_cockpit/styles.css` (`/hud` `AUX_PANE` and `/fleet` `SIDEBAR`), terminal ANSI tier mappings, and `src/mcp/embed-card.ts` inline `<agent-embed>` telemetry cards:
 
 ```text
 MIT License
@@ -38,25 +51,12 @@ SOFTWARE.
 
 ---
 
-## 2. Lucide Icons
+## 3. Development-Only Build & Typecheck Toolchain (Not Distributed in Runtime Bundles)
 
-- **Project**: <https://lucide.dev>
-- **License**: ISC License
+Contributors working on the source repository (`npm install`) use the following `devDependencies` strictly for static typechecking (`tsc --noEmit`) and local bundle compilation (`scripts/build.mjs` / `scripts/build-tests.mjs`). None of their code is embedded into the shipped runtime bundles or copied by `scripts/install.mjs`:
 
-Inline SVG status and navigation icons used in UI templates derive from Lucide under the ISC License:
-
-```text
-Copyright (c) 2026 Lucide Icons and Contributors
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted, provided that the above
-copyright notice and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-```
+| Package | Purpose (Contributor-Only) | Upstream License |
+| :--- | :--- | :--- |
+| [`esbuild`](https://github.com/evanw/esbuild) | Bundling TypeScript entrypoints into zero-dep `.cjs` / `.mjs` / `.js` files | MIT License |
+| [`typescript`](https://github.com/microsoft/TypeScript) | Strict static type checking (`npm run typecheck`) | Apache License 2.0 |
+| [`@types/node`](https://github.com/DefinitelyTyped/DefinitelyTyped) | Node.js built-in module TypeScript type definitions | MIT License |

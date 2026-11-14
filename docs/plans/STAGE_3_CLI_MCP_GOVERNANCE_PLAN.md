@@ -579,7 +579,7 @@ console.log(out);
 > **Instructions for MISSION II Execution & `S3-QA`**: Backfill this section upon completing Stage 3 implementation and `S3-QA` sign-off. Do not alter planned specifications above without a logged `[CONTRACT_CHANGE_REQUEST]`.
 
 - **Execution Status**: `[x] Completed` *(MISSION II Stage 3 `S3-QA` `7b37586a` Re-Audit **`VERDICT: APPROVED`**, `0` Blocking, `0` Major)*
-- **Stage 3 Commit SHA**: `(backfill SHA in Docs Sync)`
+- **Stage 3 Commit SHA**: `4064b48` (`feat(stage-3): ship agy-pulse cli suite, mcp governance tools, and model-pulse skill`)
 - **Audit Report**: [`STAGE_3_AUDIT.md`](./STAGE_3_AUDIT.md) (`VERDICT: APPROVED`)
 
 | Deliverable / Gate | Owner Track | Status | Verbatim Evidence Summary |
