@@ -1,0 +1,822 @@
+/* ==========================================================================
+   Model Pulse Cockpit Stylesheet
+   Tokens: Flexoki Light / Dark + Host CSS Variable Overrides
+   Guidance: modern-web-guidance (dark-mode, color, tabs, accessibility,
+             progress, interest-triggered-tooltips)
+   ========================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* System zero-CDN font stacks (CSP safe) */
+  --pulse-font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Noto Sans SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --pulse-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Flexoki Light Neutrals (default / fallback) */
+  --pulse-paper: #fffcf0;
+  --pulse-surface-base: #f2f0e5;
+  --pulse-surface-raised: #e6e4d9;
+  --pulse-line: #cecdc3;
+  --pulse-ink: #100f0f;
+  --pulse-ink-muted: #6f6e69;
+
+  /* Flexoki Light 5-Tier Semantic Colors */
+  --pulse-tier-apex: #5e409d;
+  --pulse-tier-workhorse: #205ea6;
+  --pulse-tier-fast: #24837b;
+  --pulse-tier-orchestrator: #ad8301;
+  --pulse-tier-alert: #af3029;
+
+  /* High-contrast accessible text tokens paired with tier tints */
+  --pulse-tier-apex-ink: #4b3182;
+  --pulse-tier-workhorse-ink: #184b85;
+  --pulse-tier-fast-ink: #19635d;
+  --pulse-tier-orchestrator-ink: #5c4500;
+  --pulse-tier-alert-ink: #8f241f;
+
+  --pulse-tier-apex-bg: rgba(94, 64, 157, 0.1);
+  --pulse-tier-workhorse-bg: rgba(32, 94, 166, 0.1);
+  --pulse-tier-fast-bg: rgba(36, 131, 123, 0.1);
+  --pulse-tier-orchestrator-bg: rgba(173, 131, 1, 0.12);
+  --pulse-tier-alert-bg: rgba(175, 48, 41, 0.11);
+
+  /* Host Sidecar SDK Variables -> Flexoki Fallbacks */
+  --pulse-bg: var(--background, var(--pulse-paper));
+  --pulse-surface: var(--card, var(--secondary, var(--pulse-surface-base)));
+  --pulse-surface-alt: var(--muted, var(--pulse-surface-raised));
+  --pulse-fg: var(--foreground, var(--pulse-ink));
+  --pulse-muted: var(--muted-foreground, var(--muted, var(--pulse-ink-muted)));
+  --pulse-border: var(--border, var(--pulse-line));
+  --pulse-accent: var(--primary, var(--pulse-tier-workhorse));
+  --pulse-critical: var(--destructive, var(--pulse-tier-alert));
+
+  --pulse-tier-color: var(--pulse-accent);
+  --pulse-radius-sm: 4px;
+  --pulse-radius-md: 6px;
+  --pulse-space-1: 4px;
+  --pulse-space-2: 8px;
+  --pulse-space-3: 12px;
+  --pulse-space-4: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pulse-paper: #100f0f;
+    --pulse-surface-base: #1c1b1a;
+    --pulse-surface-raised: #282726;
+    --pulse-line: #403e3c;
+    --pulse-ink: #cecdc3;
+    --pulse-ink-muted: #878580;
+
+    --pulse-tier-apex: #8b7ec8;
+    --pulse-tier-workhorse: #4385be;
+    --pulse-tier-fast: #3aa99f;
+    --pulse-tier-orchestrator: #d0a215;
+    --pulse-tier-alert: #d14d41;
+
+    --pulse-tier-apex-ink: #c2b9ea;
+    --pulse-tier-workhorse-ink: #8cc0ec;
+    --pulse-tier-fast-ink: #76d4cc;
+    --pulse-tier-orchestrator-ink: #f3da8b;
+    --pulse-tier-alert-ink: #f0958d;
+
+    --pulse-tier-apex-bg: rgba(139, 126, 200, 0.16);
+    --pulse-tier-workhorse-bg: rgba(67, 133, 190, 0.16);
+    --pulse-tier-fast-bg: rgba(58, 169, 159, 0.16);
+    --pulse-tier-orchestrator-bg: rgba(208, 162, 21, 0.16);
+    --pulse-tier-alert-bg: rgba(209, 77, 65, 0.16);
+  }
+}
+
+@supports (color: light-dark(white, black)) {
+  :root {
+    --pulse-paper: light-dark(#fffcf0, #100f0f);
+    --pulse-surface-base: light-dark(#f2f0e5, #1c1b1a);
+    --pulse-surface-raised: light-dark(#e6e4d9, #282726);
+    --pulse-line: light-dark(#cecdc3, #403e3c);
+    --pulse-ink: light-dark(#100f0f, #cecdc3);
+    --pulse-ink-muted: light-dark(#6f6e69, #878580);
+
+    --pulse-tier-apex: light-dark(#5e409d, #8b7ec8);
+    --pulse-tier-workhorse: light-dark(#205ea6, #4385be);
+    --pulse-tier-fast: light-dark(#24837b, #3aa99f);
+    --pulse-tier-orchestrator: light-dark(#ad8301, #d0a215);
+    --pulse-tier-alert: light-dark(#af3029, #d14d41);
+
+    --pulse-tier-apex-ink: light-dark(#4b3182, #c2b9ea);
+    --pulse-tier-workhorse-ink: light-dark(#184b85, #8cc0ec);
+    --pulse-tier-fast-ink: light-dark(#19635d, #76d4cc);
+    --pulse-tier-orchestrator-ink: light-dark(#5c4500, #f3da8b);
+    --pulse-tier-alert-ink: light-dark(#8f241f, #f0958d);
+
+    --pulse-tier-apex-bg: light-dark(rgba(94, 64, 157, 0.1), rgba(139, 126, 200, 0.16));
+    --pulse-tier-workhorse-bg: light-dark(rgba(32, 94, 166, 0.1), rgba(67, 133, 190, 0.16));
+    --pulse-tier-fast-bg: light-dark(rgba(36, 131, 123, 0.1), rgba(58, 169, 159, 0.16));
+    --pulse-tier-orchestrator-bg: light-dark(rgba(173, 131, 1, 0.12), rgba(208, 162, 21, 0.16));
+    --pulse-tier-alert-bg: light-dark(rgba(175, 48, 41, 0.11), rgba(209, 77, 65, 0.16));
+  }
+}
+
+/* Explicit host / UI resolved theme overrides take precedence over OS auto */
+:root[data-resolved-theme="light"],
+#pulse-app[data-resolved-theme="light"],
+[data-resolved-theme="light"] {
+  color-scheme: light;
+  --pulse-paper: #fffcf0;
+  --pulse-surface-base: #f2f0e5;
+  --pulse-surface-raised: #e6e4d9;
+  --pulse-line: #cecdc3;
+  --pulse-ink: #100f0f;
+  --pulse-ink-muted: #6f6e69;
+
+  --pulse-tier-apex: #5e409d;
+  --pulse-tier-workhorse: #205ea6;
+  --pulse-tier-fast: #24837b;
+  --pulse-tier-orchestrator: #ad8301;
+  --pulse-tier-alert: #af3029;
+
+  --pulse-tier-apex-ink: #4b3182;
+  --pulse-tier-workhorse-ink: #184b85;
+  --pulse-tier-fast-ink: #19635d;
+  --pulse-tier-orchestrator-ink: #5c4500;
+  --pulse-tier-alert-ink: #8f241f;
+
+  --pulse-tier-apex-bg: rgba(94, 64, 157, 0.1);
+  --pulse-tier-workhorse-bg: rgba(32, 94, 166, 0.1);
+  --pulse-tier-fast-bg: rgba(36, 131, 123, 0.1);
+  --pulse-tier-orchestrator-bg: rgba(173, 131, 1, 0.12);
+  --pulse-tier-alert-bg: rgba(175, 48, 41, 0.11);
+
+  --pulse-bg: var(--background, var(--pulse-paper));
+  --pulse-surface: var(--card, var(--secondary, var(--pulse-surface-base)));
+  --pulse-surface-alt: var(--muted, var(--pulse-surface-raised));
+  --pulse-fg: var(--foreground, var(--pulse-ink));
+  --pulse-muted: var(--muted-foreground, var(--muted, var(--pulse-ink-muted)));
+  --pulse-border: var(--border, var(--pulse-line));
+  --pulse-accent: var(--primary, var(--pulse-tier-workhorse));
+  --pulse-critical: var(--destructive, var(--pulse-tier-alert));
+}
+
+:root[data-resolved-theme="dark"],
+#pulse-app[data-resolved-theme="dark"],
+[data-resolved-theme="dark"] {
+  color-scheme: dark;
+  --pulse-paper: #100f0f;
+  --pulse-surface-base: #1c1b1a;
+  --pulse-surface-raised: #282726;
+  --pulse-line: #403e3c;
+  --pulse-ink: #cecdc3;
+  --pulse-ink-muted: #878580;
+
+  --pulse-tier-apex: #8b7ec8;
+  --pulse-tier-workhorse: #4385be;
+  --pulse-tier-fast: #3aa99f;
+  --pulse-tier-orchestrator: #d0a215;
+  --pulse-tier-alert: #d14d41;
+
+  --pulse-tier-apex-ink: #c2b9ea;
+  --pulse-tier-workhorse-ink: #8cc0ec;
+  --pulse-tier-fast-ink: #76d4cc;
+  --pulse-tier-orchestrator-ink: #f3da8b;
+  --pulse-tier-alert-ink: #f0958d;
+
+  --pulse-tier-apex-bg: rgba(139, 126, 200, 0.16);
+  --pulse-tier-workhorse-bg: rgba(67, 133, 190, 0.16);
+  --pulse-tier-fast-bg: rgba(58, 169, 159, 0.16);
+  --pulse-tier-orchestrator-bg: rgba(208, 162, 21, 0.16);
+  --pulse-tier-alert-bg: rgba(209, 77, 65, 0.16);
+
+  --pulse-bg: var(--background, var(--pulse-paper));
+  --pulse-surface: var(--card, var(--secondary, var(--pulse-surface-base)));
+  --pulse-surface-alt: var(--muted, var(--pulse-surface-raised));
+  --pulse-fg: var(--foreground, var(--pulse-ink));
+  --pulse-muted: var(--muted-foreground, var(--muted, var(--pulse-ink-muted)));
+  --pulse-border: var(--border, var(--pulse-line));
+  --pulse-accent: var(--primary, var(--pulse-tier-workhorse));
+  --pulse-critical: var(--destructive, var(--pulse-tier-alert));
+}
+
+/* ==========================================================================
+   Base Reset & Scrollbars (preload.js inline #fafafa fallback override)
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--pulse-bg);
+  color: var(--pulse-fg);
+  scrollbar-color: var(--pulse-border) transparent;
+  scrollbar-width: thin;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100dvh;
+  overflow: hidden;
+  /* Override sidecar_sdk preload.js inline #fafafa/#333 fallback while honoring --background/--foreground */
+  background: var(--pulse-bg) !important;
+  color: var(--pulse-fg) !important;
+  font-family: var(--pulse-font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--pulse-border);
+    border-radius: 999px;
+  }
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ==========================================================================
+   App Shell & Landmark Container
+   ========================================================================== */
+
+.pulse-app {
+  height: 100dvh;
+  max-height: 100dvh;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--pulse-bg);
+  color: var(--pulse-fg);
+  display: flex;
+  flex-direction: column;
+}
+
+.pulse-main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+  padding: var(--pulse-space-2) var(--pulse-space-3) var(--pulse-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pulse-space-3);
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-color: var(--pulse-border) transparent;
+  scrollbar-width: thin;
+}
+
+/* ==========================================================================
+   Accessible Tabs (single non-wrapping row + ::after border-block-end cue)
+   ========================================================================== */
+
+.pulse-tabs,
+[role="tablist"] {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: var(--pulse-space-1);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-bottom: 1px solid var(--pulse-border);
+  padding-inline: 2px;
+  min-width: 0;
+  scrollbar-color: var(--pulse-border) transparent;
+  scrollbar-width: thin;
+}
+
+.pulse-tab,
+[role="tab"] {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--pulse-radius-sm) var(--pulse-radius-sm) 0 0;
+  background: transparent;
+  color: var(--pulse-muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pulse-tab:hover,
+[role="tab"]:hover {
+  color: var(--pulse-fg);
+  background: var(--pulse-surface);
+}
+
+.pulse-tab:focus-visible,
+[role="tab"]:focus-visible,
+button:focus-visible,
+[data-action]:focus-visible {
+  outline: 2px solid var(--pulse-accent);
+  outline-offset: -2px;
+}
+
+.pulse-tab[aria-selected="true"],
+[role="tab"][aria-selected="true"] {
+  color: var(--pulse-fg);
+  font-weight: 600;
+}
+
+.pulse-tab[aria-selected="true"]::after,
+[role="tab"][aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 4px;
+  inset-block-end: 0;
+  border-block-end: 2px solid var(--pulse-accent);
+  pointer-events: none;
+}
+
+.pulse-tabpanel,
+[role="tabpanel"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pulse-space-3);
+  min-width: 0;
+}
+
+.pulse-tabpanel[hidden],
+[role="tabpanel"][hidden] {
+  display: none;
+}
+
+/* ==========================================================================
+   Hero Telemetry Card, Health Row & Live Phase Indicator
+   ========================================================================== */
+
+.pulse-hero {
+  background: var(--pulse-surface);
+  border: 1px solid var(--pulse-border);
+  border-radius: var(--pulse-radius-md);
+  padding: var(--pulse-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pulse-space-2);
+  min-width: 0;
+}
+
+.pulse-hero h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.pulse-muted {
+  margin: 0;
+  color: var(--pulse-muted);
+  font-size: 12px;
+}
+
+.pulse-boot {
+  border-left: 3px solid var(--pulse-tier-workhorse);
+}
+
+.pulse-boot-message {
+  margin: 0;
+  color: var(--pulse-muted);
+  font-size: 12px;
+}
+
+.pulse-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.pulse-health-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pulse-space-2);
+  min-width: 0;
+}
+
+.pulse-health-row > * {
+  min-width: 0;
+}
+
+.pulse-live-timer {
+  font-family: var(--pulse-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pulse-fg);
+}
+
+.pulse-phase-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--pulse-tier-color);
+  flex: 0 0 auto;
+}
+
+.pulse-phase-dot[data-phase="streaming"],
+.pulse-phase-dot[data-phase="scanning"] {
+  animation: pulse-phase-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse-phase-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+
+/* ==========================================================================
+   Native <progress> & Context Meter Bar (SPLIT vendor selectors!)
+   ========================================================================== */
+
+.pulse-progress {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background-color: var(--pulse-surface-alt);
+  color: var(--pulse-tier-color, var(--pulse-accent));
+  overflow: clip;
+}
+
+.pulse-progress::-webkit-progress-bar {
+  background-color: var(--pulse-surface-alt);
+  border-radius: 999px;
+}
+
+/* IMPORTANT: Never comma-group ::-webkit-progress-value and ::-moz-progress-bar */
+.pulse-progress::-webkit-progress-value {
+  background-color: var(--pulse-tier-color, var(--pulse-accent));
+  border-radius: 999px;
+  transition: width 180ms ease;
+}
+
+.pulse-progress::-moz-progress-bar {
+  background-color: var(--pulse-tier-color, var(--pulse-accent));
+  border-radius: 999px;
+}
+
+.pulse-progress:indeterminate {
+  background-image: linear-gradient(
+    90deg,
+    var(--pulse-surface-alt) 0%,
+    var(--pulse-tier-color, var(--pulse-accent)) 50%,
+    var(--pulse-surface-alt) 100%
+  );
+  background-size: 200% 100%;
+  animation: pulse-progress-indeterminate 1.4s linear infinite;
+}
+
+@keyframes pulse-progress-indeterminate {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ==========================================================================
+   Model Matrix, Node Cards, Pills & 5-Tier Semantic Colors
+   ========================================================================== */
+
+.pulse-matrix {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--pulse-space-2);
+  min-width: 0;
+}
+
+.pulse-node-card {
+  background: var(--pulse-surface);
+  border: 1px solid var(--pulse-border);
+  border-left: 3px solid var(--pulse-tier-color, var(--pulse-border));
+  border-radius: var(--pulse-radius-md);
+  padding: var(--pulse-space-2) var(--pulse-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pulse-space-2);
+  min-width: 0;
+}
+
+.pulse-node-card[data-active="true"] {
+  background: var(--pulse-surface-alt);
+  border-color: var(--pulse-tier-color, var(--pulse-accent));
+}
+
+.pulse-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--pulse-border);
+  background: var(--pulse-surface-alt);
+  color: var(--pulse-fg);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* 5-Tier Semantic Bindings (non-color cues: border + tint + ink + badge text) */
+.pulse-tier-apex {
+  --pulse-tier-color: var(--pulse-tier-apex);
+  --pulse-tier-ink: var(--pulse-tier-apex-ink);
+  --pulse-tier-bg: var(--pulse-tier-apex-bg);
+}
+
+.pulse-tier-workhorse {
+  --pulse-tier-color: var(--pulse-tier-workhorse);
+  --pulse-tier-ink: var(--pulse-tier-workhorse-ink);
+  --pulse-tier-bg: var(--pulse-tier-workhorse-bg);
+}
+
+.pulse-tier-fast {
+  --pulse-tier-color: var(--pulse-tier-fast);
+  --pulse-tier-ink: var(--pulse-tier-fast-ink);
+  --pulse-tier-bg: var(--pulse-tier-fast-bg);
+}
+
+.pulse-tier-orchestrator {
+  --pulse-tier-color: var(--pulse-tier-orchestrator);
+  --pulse-tier-ink: var(--pulse-tier-orchestrator-ink);
+  --pulse-tier-bg: var(--pulse-tier-orchestrator-bg);
+}
+
+.pulse-tier-alert {
+  --pulse-tier-color: var(--pulse-tier-alert);
+  --pulse-tier-ink: var(--pulse-tier-alert-ink);
+  --pulse-tier-bg: var(--pulse-tier-alert-bg);
+}
+
+.pulse-pill[class*="pulse-tier-"] {
+  border-color: var(--pulse-tier-color);
+  background: var(--pulse-tier-bg);
+  color: var(--pulse-tier-ink);
+}
+
+/* ==========================================================================
+   Action / Alert Banners, Quota Fuel Bar, Timeline & Fleet Grid
+   ========================================================================== */
+
+.pulse-banner {
+  background: var(--pulse-surface);
+  border: 1px solid var(--pulse-border);
+  border-left: 3px solid var(--pulse-tier-color, var(--pulse-critical));
+  border-radius: var(--pulse-radius-md);
+  padding: var(--pulse-space-2) var(--pulse-space-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pulse-space-2);
+  color: var(--pulse-fg);
+  min-width: 0;
+}
+
+.pulse-banner[class*="pulse-tier-"] {
+  border-color: var(--pulse-tier-color);
+  background: var(--pulse-tier-bg);
+  color: var(--pulse-fg);
+}
+
+.pulse-fuel-bar {
+  background: var(--pulse-surface);
+  border: 1px solid var(--pulse-border);
+  border-radius: var(--pulse-radius-md);
+  padding: var(--pulse-space-2) var(--pulse-space-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pulse-space-2);
+  font-size: 12px;
+  min-width: 0;
+}
+
+.pulse-timeline-bar {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  width: 100%;
+  height: 10px;
+  border-radius: var(--pulse-radius-sm);
+  border: 1px solid var(--pulse-border);
+  background: var(--pulse-surface-alt);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.pulse-fleet-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--pulse-space-3);
+  min-width: 0;
+}
+
+.pulse-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--pulse-muted);
+  min-width: 0;
+}
+
+.pulse-idle-drawer {
+  border: 1px dashed var(--pulse-border);
+  border-radius: var(--pulse-radius-md);
+  padding: var(--pulse-space-2) var(--pulse-space-3);
+  background: var(--pulse-surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pulse-space-2);
+  min-width: 0;
+}
+
+[data-action] {
+  min-height: 28px;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Native Popover Tooltip Positioning (gated @supports + non-anchor fallback)
+   ========================================================================== */
+
+.pulse-popover[popover] {
+  max-width: min(320px, calc(100vw - 24px));
+  padding: var(--pulse-space-2) var(--pulse-space-3);
+  border: 1px solid var(--pulse-border);
+  border-radius: var(--pulse-radius-md);
+  background: var(--pulse-surface);
+  color: var(--pulse-fg);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 6px 20px rgba(16, 15, 15, 0.16);
+}
+
+.pulse-popover[popover]:is(:popover-open, .\:popover-open) {
+  display: block;
+}
+
+@supports (position-area: block-end) {
+  .pulse-popover[popover] {
+    inset: auto;
+    margin: 0;
+    position-area: block-end span-inline-end;
+    position-try-fallbacks: flip-block, flip-inline;
+  }
+}
+
+@supports not (position-area: block-end) {
+  .pulse-popover[popover]:is(:popover-open, .\:popover-open) {
+    position: fixed;
+    inset-block-start: auto;
+    inset-block-end: 16px;
+    inset-inline: 12px;
+    margin-inline: auto;
+  }
+}
+
+/* ==========================================================================
+   Responsive Breakpoints (340px-480px Aux Pane vs >=640px Fleet Radar)
+   ========================================================================== */
+
+@media (max-width: 480px) {
+  .pulse-main {
+    padding: var(--pulse-space-2);
+    gap: var(--pulse-space-2);
+  }
+
+  .pulse-hero,
+  .pulse-node-card,
+  .pulse-fuel-bar,
+  .pulse-banner {
+    padding: var(--pulse-space-2);
+  }
+}
+
+@media (min-width: 640px) {
+  .pulse-main {
+    padding: var(--pulse-space-4);
+    gap: var(--pulse-space-4);
+  }
+
+  .pulse-matrix {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+
+  .pulse-fleet-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 960px) {
+  .pulse-fleet-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* ==========================================================================
+   Accessibility: Reduced Motion & Forced Colors Mode
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-phase-dot[data-phase="streaming"],
+  .pulse-phase-dot[data-phase="scanning"] {
+    animation: none;
+  }
+
+  /* Never set animation: none on indeterminate <progress> (Chromium zero-width fill bug) */
+  .pulse-progress:indeterminate {
+    animation-duration: 6s;
+  }
+
+  .pulse-progress::-webkit-progress-value {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .pulse-app,
+  .pulse-hero,
+  .pulse-node-card,
+  .pulse-fuel-bar,
+  .pulse-banner,
+  .pulse-popover[popover] {
+    background: Canvas;
+    color: CanvasText;
+    border: 1px solid CanvasText;
+  }
+
+  .pulse-tab[aria-selected="true"]::after,
+  [role="tab"][aria-selected="true"]::after {
+    border-block-end-color: Highlight;
+  }
+
+  .pulse-progress,
+  .pulse-progress::-webkit-progress-bar {
+    background-color: Canvas;
+    border: 1px solid CanvasText;
+  }
+
+  .pulse-progress::-webkit-progress-value {
+    background-color: Highlight;
+  }
+
+  .pulse-progress::-moz-progress-bar {
+    background-color: Highlight;
+  }
+
+  .pulse-pill {
+    background: Canvas;
+    color: ButtonText;
+    border: 1px solid ButtonText;
+  }
+}

@@ -5,7 +5,7 @@
 > **Canonical PRD**: [`docs/PRODUCT_DESIGN.md`](../PRODUCT_DESIGN.md)  
 > **Companion Ledgers**: [`DECISION_LOG.md`](./DECISION_LOG.md) · [`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md)  
 > **Baseline Commit**: `87419f0` (`feat: initialize antigravity-pulse open-source repository and product design`)  
-> **Blueprint Status**: Active Master Contract (MISSION I — Step M1.3 `VERDICT: APPROVED`; Ready for MISSION II Stage 0)
+> **Blueprint Status**: Active Master Contract (MISSION II Stage 0 `[x] Done` — `VERDICT: APPROVED`; Ready for Stage 1)
 
 ---
 
@@ -697,13 +697,13 @@ Every section, feature, metric, and guardrail from [`docs/PRODUCT_DESIGN.md`](..
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Repo Init** | Initial repository, `PRODUCT_DESIGN.md`, `README.md`, `docs/`, `LICENSE` | Pre-Mission | `[x] Done` | Baseline | `87419f0` | Verified baseline commit on `main`. |
 | **MISSION I — M1.1** | `00_MASTER_IMPLEMENTATION_BLUEPRINT.md`, `DECISION_LOG.md`, `LESSONS_LEARNED.md` | Chief Architect | `[x] Done` | `APPROVED` (M1.3) | `d045b9f` | Validated via `agy-pele check docs/plans --strict-mermaid`. |
-| **MISSION I — M1.2 (S0)** | `docs/plans/STAGE_0_FOUNDATION_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `(backfill in Stage 0)` | Covers pkg/build, `src/types/`, `$PULSE_STATE_DIR`, Stitch `DESIGN.md`, installer. |
-| **MISSION I — M1.2 (S1)** | `docs/plans/STAGE_1_MVP_LOOP_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `(backfill in Stage 0)` | Covers LS RPC, State Machine, Topology, Hook Probe, `/hud` AUX_PANE. |
-| **MISSION I — M1.2 (S2)** | `docs/plans/STAGE_2_TIMELINE_FLEET_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `(backfill in Stage 0)` | Covers Timeline Tab + `/fleet` SIDEBAR + Top 5 Burners. |
-| **MISSION I — M1.2 (S3)** | `docs/plans/STAGE_3_CLI_MCP_GOVERNANCE_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `(backfill in Stage 0)` | Covers `agy-pulse` CLI, `mcp.cjs`, `SKILL.md`, prebuilt bundle verification. |
-| **MISSION I — M1.2 (CTX)** | 3-Tier Repo Context Governance (`AGENTS.md`, `.agents/`) | Context Architect | `[x] Done` | `APPROVED` (M1.3) | `(backfill in Stage 0)` | Repo contributor governance only (zero plugin prompt leak); `verify-context.mjs` PASS. |
-| **MISSION I — M1.3 (Auditor)** | MISSION I Consistency Audit, Remediation & Git Push | Referee / Lead | `[x] Done` | `VERDICT: APPROVED` | `(backfill in Stage 0)` | M1.3 Re-Audit APPROVED: `agy-pele check . --strict-mermaid` (17 files, 12 diagrams, 0 errors/warnings), `verify-context.mjs` PASS, `agy plugin validate . --json` 0 errors. |
-| **MISSION II — Stage 0** | Engineering & Stitch Design Foundation | `S0-A`, `S0-B`, `S0-QA` | `[ ] Pending` | — | — | Unlocks `[CONTRACT_SYNC]` for `src/types/*` & `DESIGN.md`. |
+| **MISSION I — M1.2 (S0)** | `docs/plans/STAGE_0_FOUNDATION_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `8ef2b63` | Covers pkg/build, `src/types/`, `$PULSE_STATE_DIR`, Stitch `DESIGN.md`, installer. |
+| **MISSION I — M1.2 (S1)** | `docs/plans/STAGE_1_MVP_LOOP_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `8ef2b63` | Covers LS RPC, State Machine, Topology, Hook Probe, `/hud` AUX_PANE. |
+| **MISSION I — M1.2 (S2)** | `docs/plans/STAGE_2_TIMELINE_FLEET_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `8ef2b63` | Covers Timeline Tab + `/fleet` SIDEBAR + Top 5 Burners. |
+| **MISSION I — M1.2 (S3)** | `docs/plans/STAGE_3_CLI_MCP_GOVERNANCE_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `8ef2b63` | Covers `agy-pulse` CLI, `mcp.cjs`, `SKILL.md`, prebuilt bundle verification. |
+| **MISSION I — M1.2 (CTX)** | 3-Tier Repo Context Governance (`AGENTS.md`, `.agents/`) | Context Architect | `[x] Done` | `APPROVED` (M1.3) | `8ef2b63` | Repo contributor governance only (zero plugin prompt leak); `verify-context.mjs` PASS. |
+| **MISSION I — M1.3 (Auditor)** | MISSION I Consistency Audit, Remediation & Git Push | Referee / Lead | `[x] Done` | `VERDICT: APPROVED` | `8ef2b63` | M1.3 Re-Audit APPROVED: `agy-pele check . --strict-mermaid` (17 files, 12 diagrams, 0 errors/warnings), `verify-context.mjs` PASS, `agy plugin validate . --json` 0 errors. |
+| **MISSION II — Stage 0** | Engineering & Stitch Design Foundation | `S0-A`, `S0-B`, `S0-QA` | `[x] Done` | `VERDICT: APPROVED` | `(backfill SHA in Stage 1)` | `17/17` tests pass, `findings: []` on strict install validation, `D-008`, `L-011`–`L-012`, [`STAGE_0_AUDIT.md`](./STAGE_0_AUDIT.md). |
 | **MISSION II — Stage 1** | MVP Live Telemetry Loop (`/hud` + `<8ms` Hook + RPC) | `S1-A`, `S1-B`, `S1-C`, `S1-QA` | `[ ] Pending` | — | — | First end-to-end usable cockpit + smart inline stamp. |
 | **MISSION II — Stage 2** | Timeline Flame Axis & `/fleet` Global Sidebar | `S2-A`, `S2-B`, `S2-QA` | `[ ] Pending` | — | — | Multi-project active radar & Top 5 Quota Burners. |
 | **MISSION II — Stage 3** | `agy-pulse` CLI, MCP Server, `SKILL.md` & Packaging | `S3-A`, `S3-B`, `S3-QA` | `[ ] Pending` | — | — | Full 4-surface release + prebuilt `dist/` commit. |

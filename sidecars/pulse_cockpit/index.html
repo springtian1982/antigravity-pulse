@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Model Pulse</title>
+    <script src="/preload.js"></script>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div
+      id="pulse-app"
+      class="pulse-app"
+      data-view="hud"
+      data-theme-mode="auto"
+    >
+      <main id="app" class="pulse-main" aria-live="polite">
+        <section class="pulse-hero pulse-boot" role="status">
+          <div class="pulse-health-row">
+            <span class="pulse-phase-dot" data-phase="scanning" aria-hidden="true"></span>
+            <span class="pulse-title">Model Pulse</span>
+            <span class="pulse-pill pulse-tier-workhorse tabular-nums">BOOT</span>
+          </div>
+          <p class="pulse-boot-message">正在连接 Antigravity 2.0 遥测侧车…</p>
+        </section>
+      </main>
+    </div>
+    <script src="/dist/ui.js"></script>
+  </body>
+</html>

@@ -120,3 +120,33 @@
   1. `scripts/build-tests.mjs` MUST recursively discover all `tests/**/*.test.ts` files and flatten each relative path into `.test-dist/<subpath>--<name>.test.cjs` (e.g., `unit--state-dir.test.cjs`, `contracts--manifest-contracts.test.cjs`, `benchmarks--hook-latency.test.cjs`, `e2e--hud-loop.test.cjs`).
   2. Preserve `package.json`'s `.test-dist/*.test.cjs` glob unchanged so `npm test` discovers all four test categories consistently across Linux and Windows.
 - **Verified By**: Repo `package.json` line 49 (`"test"` script) & `STAGE_0_FOUNDATION_PLAN.md` §3.5(3).
+
+---
+
+## `L-011`: Stitch API `v1 :download` JSON `dataString` Wrapping, `find screens` `DOCUMENT`-Only Filtering & `360px` HUD Truncation Risks
+
+- **Symptom**: Running `stitch_ops.py export-project` returns only `DESIGN.md` (`returnedCount=1`) and overwrites `export_manifest.json`, hiding generated `DESIGN` screens (`af32887f71e7494e9e38e4ae4ef39b52`, `630bde1beb414834bcefe327fcf73551`); meanwhile files saved from Stitch `v1 :download` endpoints contain JSON text (`{"dataString": "..."}`) rather than raw PNG/HTML bytes, failing `read_file` image inspection. In addition, visual inspection of the generated `360px` HUD screenshot shows right-edge clipping in three high-density horizontal rows.
+- **Root Cause**:
+  1. Stitch `v1` `:download` endpoints wrap PNG screenshots (`base64`) and HTML payloads (stringified) inside JSON `dataString` envelopes that must be decoded locally (`screenshot_decoded.png`, `index_decoded.html`) before visual/DOM inspection.
+  2. `stitch find screens --project <pid>` (called internally by `stitch_ops.py export-project`) only returns mounted `screenType: "DOCUMENT"` artifacts (`16500565309143592318` `DESIGN.md`), overwriting `export_manifest.json` even when live `screenType: "DESIGN"` screens exist and resolve via positional `stitch get screen <id> --project <pid> -f json` (or MCP `stitch_get`).
+  3. In narrow `360px` `AUX_PANE` viewports (`Model Pulse HUD - Aux Pane`), unguarded flex rows risk truncation at (a) the top tabbar (`Quota 配额`) next to right-side icon buttons, (b) the sticky hero `Requested ➔ Served` nameplate (`Auto ➔ Gemini...` vs `✓ gemini-4-argon`), and (c) the bottom `36px` fuel bar (`Wk: 96.5%` adjacent to tree delta and stamp mode pill).
+- **Actionable Prevention Rule**:
+  1. Decode Stitch `v1 :download` JSON `dataString` wrappers locally (`base64` -> PNG, string -> HTML) before visual inspection via `read_file`.
+  2. Pass explicit `--project <pid>` flags (`--project 9409889379743133909`) and verify `DESIGN` screens via positional `stitch get screen <id> --project <pid> -f json` (or MCP `stitch_get`) rather than relying solely on `find screens` / `export-project`.
+  3. Enforce `min-width: 0`, scrollable single-row tabbars, compact label truncation guards, and visual QA verification across all 3 `360px` HUD rows during Stage 1 (`S1-C`) and Stage 2 (`S2-B`).
+- **Verified By**: Live MCP `stitch_get` responses for screens `af32887f71e7494e9e38e4ae4ef39b52` and `630bde1beb414834bcefe327fcf73551` (`2560x2048` `DESKTOP` `DESIGN`); `.stitch/exports/9409889379743133909/export_manifest.json`; visual inspection of `screenshot_decoded.png` for both screens.
+
+---
+
+## `L-012`: Ephemeral Port `0` Falsy Coercion (`Number(raw) || 4173`), POSIX `set -eu` `"${HOME:-}"` Guard & `<progress>` / `#pulse-app` Overflow Containment
+
+- **Symptom**: (a) Passing `--port 0`, `--port=0`, or `PORT=0` to `scripts/preview-ui.mjs` falls back to port `4173` instead of binding an ephemeral OS port; (b) POSIX launcher `bin/agy-pulse` under `set -eu` crashes with `HOME: unbound variable` when `HOME` is unset; (c) uncontained `<progress>` and outer `100dvh` flex shells leak fill past rounded borders or spawn double scrollbars.
+- **Root Cause**:
+  1. `Number('0') || 4173` evaluates `0` as falsy in JS, discarding valid port `0` before `server.listen(0, '127.0.0.1')` and skipping `server.address().port`.
+  2. Under `set -eu`, guarding `[ -x "${HOME:-}/..." ]` without also writing `"${HOME:-}"` on the `exec` line still raises an unbound variable error if `HOME` is unset (or vice versa).
+  3. Native `<progress>` requires `overflow: clip;` to contain track border-radius across engines, and a fixed-viewport sidecar requires `height: 100dvh; max-height: 100dvh; overflow: hidden;` on `#pulse-app` (`.pulse-app`) paired with `min-height: 0; overflow-y: auto;` on `.pulse-main`.
+- **Actionable Prevention Rule**:
+  1. Parse port arguments and `PORT` env using strict integer validation (`Number.isInteger(n) && n >= 0 && n <= 65535`) and resolve the bound port via `server.address().port`.
+  2. Guard `"${HOME:-}"` consistently across both condition checks and `exec` statements in POSIX `set -eu` scripts.
+  3. Keep `overflow: clip;` on `.pulse-progress` and `height: 100dvh; max-height: 100dvh; overflow: hidden;` on `.pulse-app` (`#pulse-app`).
+- **Verified By**: [`scripts/preview-ui.mjs`](../../scripts/preview-ui.mjs) lines 15–39 & 196–200; [`bin/agy-pulse`](../../bin/agy-pulse) lines 21–23; [`sidecars/pulse_cockpit/styles.css`](../../sidecars/pulse_cockpit/styles.css) lines 264–290 & 471–482; `tests/contracts/manifest-contracts.test.ts` ephemeral `--port 0` / `--port=0` / `PORT=0` subprocess assertions.

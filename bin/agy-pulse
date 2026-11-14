@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+SOURCE="$0"
+while [ -L "$SOURCE" ]; do
+  DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
+  TARGET=$(readlink "$SOURCE")
+  case "$TARGET" in
+    /*) SOURCE="$TARGET" ;;
+    *) SOURCE="$DIR/$TARGET" ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
+CLI_ENTRY="$SCRIPT_DIR/../dist/cli.cjs"
+
+if command -v node >/dev/null 2>&1; then
+  exec node "$CLI_ENTRY" "$@"
+fi
+if command -v agy-node >/dev/null 2>&1; then
+  exec agy-node "$CLI_ENTRY" "$@"
+fi
+if [ -x "${HOME:-}/.config/Antigravity/bin/agy-node" ]; then
+  exec "${HOME:-}/.config/Antigravity/bin/agy-node" "$CLI_ENTRY" "$@"
+fi
+
+echo "agy-pulse: neither node nor agy-node was found in PATH." >&2
+exit 127

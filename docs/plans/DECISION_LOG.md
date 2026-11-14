@@ -98,3 +98,19 @@
   2. Omit plugin `rules/` entirely from the distributed bundle (`package.json` `"files"` and `scripts/install.mjs`), ship only on-demand `skills/model-pulse/SKILL.md` for `antigravity-pulse` MCP usage, and restrict 3-tier `AGENTS.md` + `.agents/` solely to repository development scope.
 - **Chosen Decision & Rationale**: Adopt **Option 2**. Guarantees 0 idle prompt token overhead and 0 Prompt Cache perturbation for end users while still providing structured repository governance for contributors and on-demand MCP compute-budget guidance when an orchestrating agent explicitly activates `model-pulse`.
 - **Verification Evidence**: [`package.json`](../../package.json) lines 33–45 (`"files"` omits `.agents/` and `rules/`); `agy plugin validate . --strict --json` component inspection.
+
+---
+
+## `D-008`: Host CSS Variable Mapping, `preload.js` `#fafafa` Override & Stitch Explicit `--project` Invocation
+
+- **Date**: 2026-11-14
+- **Stage**: MISSION II — Stage 0 (`S0-B` / `S0-QA`)
+- **Context**:
+  1. Antigravity's `sidecar_sdk/preload.js` sets inline `#fafafa` / `#333` fallback colors on `body` and updates host theme variables (`--background`, `--foreground`, `--border`, `--primary`, `--muted`, `--muted-foreground`, `--secondary`, `--destructive`, `--card`) via `theme-change` `postMessage` payloads. Without explicit overrides, `preload.js`'s inline styles mask Flexoki Light (`#fffcf0`) and Dark (`#100f0f`) backgrounds.
+  2. Exact Flexoki Amber (`#ad8301` light / `#d0a215` dark) achieves low text contrast against warm paper and obsidian pill backgrounds under `WCAG 1.4.3`, whereas replacing those hexes globally would violate the canonical 5-tier Flexoki palette (`RTM-22`).
+  3. Invoking Google Stitch CLI (`stitch_ops.py` / `stitch`) via `stitch config set project` mutates global `~/.stitch.json`, creating cross-session interference if multiple projects or agents run concurrently.
+- **Options Considered**:
+  1. Hardcode Flexoki `#fffcf0`/`#100f0f` directly on `body` (ignoring Antigravity host theme tokens), replace Flexoki Amber hexes globally, and rely on global `stitch config set project`.
+  2. Bind `--pulse-bg: var(--background, var(--pulse-paper))` (alongside `--pulse-surface`, `--pulse-surface-alt`, `--pulse-fg`, `--pulse-muted`, `--pulse-border`, `--pulse-accent`, `--pulse-critical`), enforce `background: var(--pulse-bg) !important; color: var(--pulse-fg) !important;` on `body` to override `preload.js` `#fafafa`/`#333` inline fallbacks while honoring Antigravity host `theme-change` CSS variables, re-declare `--pulse-*` inside `[data-resolved-theme="light"|"dark"]` blocks, pair exact Flexoki Amber (`#ad8301` / `#d0a215`) borders and tints with WCAG `>= 4.5:1` ink tokens (`--pulse-tier-orchestrator-ink`: `#5c4500` light / `#f3da8b` dark, plus dedicated `*-ink` tokens for all 5 tiers), and pass explicit `--project 9409889379743133909` flags on all Stitch commands without mutating global config.
+- **Chosen Decision & Rationale**: Adopt **Option 2**. Honors Antigravity host theme polarity seamlessly while eliminating `preload.js` `#fafafa` visual flash/leakage, maintains strict `RTM-22` Flexoki palette fidelity with `WCAG >= 4.5:1` legible text, and keeps Stitch project operations (`9409889379743133909`) isolated and deterministic.
+- **Verification Evidence**: [`sidecars/pulse_cockpit/styles.css`](../../sidecars/pulse_cockpit/styles.css) lines 32–228; [`DESIGN.md`](../../DESIGN.md) §2 & §4; live Stitch project `9409889379743133909` (`af32887f71e7494e9e38e4ae4ef39b52`, `630bde1beb414834bcefe327fcf73551`); `tests/contracts/manifest-contracts.test.ts` Flexoki & CSS contract assertions.

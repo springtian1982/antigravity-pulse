@@ -2,7 +2,7 @@
 
 > **Stage ID**: `Stage 0`  
 > **Stage Goal**: Establish the zero-runtime-dependency TypeScript + `esbuild` build/test pipeline, frozen cross-module contracts (`src/types/*`), `$PULSE_STATE_DIR` atomic state bus (`0700`/`0600`), valid Antigravity 2.0 plugin manifests and cross-platform `bin/` launchers, inode-preserving atomic global installer (`scripts/install.mjs`), and `modern-web-guidance` + Stitch-grounded `DESIGN.md` & Flexoki Light/Dark UI shell (`sidecars/pulse_cockpit/index.html`, `styles.css`).  
-> **Status**: `[ ] Pending` *(Execution in MISSION II)*  
+> **Status**: `[x] Done` *(MISSION II Stage 0 `VERDICT: APPROVED` by `S0-QA` `ba16e33c`)*  
 > **Upstream Preconditions**: Baseline commit `87419f0`; MISSION I Master Blueprint ([`00_MASTER_IMPLEMENTATION_BLUEPRINT.md`](./00_MASTER_IMPLEMENTATION_BLUEPRINT.md)), Architectural Decision Log ([`DECISION_LOG.md`](./DECISION_LOG.md)), Lessons Learned ([`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md) `L-001`–`L-007`), and Repo Context Governance (`AGENTS.md`, `.agents/`, `scripts/verify-context.mjs`, `.gitignore`).  
 > **Downstream Consumers**: Stage 1 (`S1-A`, `S1-B`, `S1-C`), Stage 2 (`S2-A`, `S2-B`), Stage 3 (`S3-A`, `S3-B`).  
 > **Target RTM Rows**: `RTM-02`, `RTM-10`, `RTM-22`, `RTM-23`, `RTM-27` *(plus foundation prerequisites for `RTM-03`, `RTM-17`, `RTM-20`, `RTM-24`)*.
@@ -425,42 +425,147 @@ agy-pele check . --strict-mermaid
 
 ## 6. Implementation Status & Results (MISSION II Backfill)
 
-> *To be filled verbatim by `S0-A`, `S0-B`, and `S0-QA` during MISSION II Stage 0 execution.*
+> *Backfilled during MISSION II Stage 0 closeout (`S0-QA` `ba16e33c` -> `VERDICT: APPROVED`).*
 
 ### 6.1 Deliverable Completion Table
 
 | Track | Deliverable / Artifact | Status | Verification Evidence / Notes |
 | :--- | :--- | :--- | :--- |
-| `S0-A` | `package.json`, `package-lock.json`, `tsconfig.json` | `[ ] Pending` | — |
-| `S0-A` | `hooks.json`, `mcp_config.json`, `sidecar.json`, `skills/model-pulse/SKILL.md` | `[ ] Pending` | — |
-| `S0-A` | `bin/agy-pulse`, `bin/agy-pulse.cmd`, `bin/agy-pulse.ps1` | `[ ] Pending` | — |
-| `S0-A` | `src/types/{telemetry.ts,rpc.ts,sidecar-sdk.d.ts,index.ts}` | `[ ] Pending` | — |
-| `S0-A` | `src/state/{state-dir.ts,config-store.ts}` | `[ ] Pending` | — |
-| `S0-A` | Scaffolds + `scripts/{build,build-tests,install,preview-ui}.mjs` + 5 `dist/*` bundles | `[ ] Pending` | — |
-| `S0-B` | `modern-web-guidance` searches & retrieved guides (`dark-mode`, `tabs`, `progress`, `interest-triggered-tooltips`) | `[ ] Pending` | — |
-| `S0-B` | Stitch workflow (`stitch_ops.py doctor`, project/design-system, `/hud` & `/fleet` export or fallback log) | `[ ] Pending` | — |
-| `S0-B` | `DESIGN.md`, `sidecars/pulse_cockpit/index.html`, `sidecars/pulse_cockpit/styles.css` | `[ ] Pending` | — |
-| `S0-QA` | `tests/unit/state-dir.test.ts`, `tests/contracts/manifest-contracts.test.ts`, `STAGE_0_AUDIT.md` | `[ ] Pending` | — |
+| `S0-A` | `package.json`, `package-lock.json`, `tsconfig.json` | `[x] Done` | Zero runtime `dependencies`; `npm run typecheck` (`tsc --noEmit` with `"allowJs": true, "checkJs": false`) exits `0`; verified in [`tests/contracts/manifest-contracts.test.ts`](../../tests/contracts/manifest-contracts.test.ts). |
+| `S0-A` | `hooks.json`, `mcp_config.json`, `sidecar.json`, `skills/model-pulse/SKILL.md` | `[x] Done` | `hooks.json` `"pulse-telemetry"` asymmetric schema (`L-006`), dual-view `/hud` + `/fleet` [`sidecar.json`](../../sidecars/pulse_cockpit/sidecar.json) (`D-002`), on-demand [`SKILL.md`](../../skills/model-pulse/SKILL.md) with zero root `rules/` (`D-007`); `agy plugin validate <installed> --strict --json` returns `findings: []`. |
+| `S0-A` | `bin/agy-pulse`, `bin/agy-pulse.cmd`, `bin/agy-pulse.ps1` | `[x] Done` | POSIX LF (`0o755`, consistent `"${HOME:-}"` guard per `L-012`) + Windows `.cmd`/`.ps1` CRLF launchers with `node` -> `agy-node` fallback; verified by contract tests. |
+| `S0-A` | `src/types/{telemetry.ts,rpc.ts,sidecar-sdk.d.ts,index.ts}` | `[x] Done` | Frozen cross-module domain, Connect-RPC (`L-001`..`L-005`), and `SidecarApp` / `Response` / `Window.sidecar` contracts compiled under `tsc --noEmit`. |
+| `S0-A` | `src/state/{state-dir.ts,config-store.ts}` | `[x] Done` | `$PULSE_STATE_DIR` priority, `0o700`/`0o600` atomic `tmp + renameSync`, UUID validator, `512 KiB` ring rotation, config validation & `__proto__` defense verified by 9 unit tests in [`tests/unit/state-dir.test.ts`](../../tests/unit/state-dir.test.ts). |
+| `S0-A` | Scaffolds + `scripts/{build,build-tests,install,preview-ui}.mjs` + 5 `dist/*` bundles | `[x] Done` | 5 SPDX-MIT bundles (`dist/{hook-probe,mcp,cli}.cjs`, `sidecars/pulse_cockpit/dist/{server.mjs,ui.js}`), flattened `.test-dist/*.test.cjs`, `--port 0`/`PORT=0` preview (`L-012`), inode-preserving `install.mjs` (`D-006`); verified by `manifest-contracts.test.ts`. |
+| `S0-B` | `modern-web-guidance` searches & retrieved guides (`dark-mode`, `tabs`, `progress`, `interest-triggered-tooltips`) | `[x] Done` | Retrieved & applied `<meta name="color-scheme" content="light dark">`, `::after` tab underline, split `<progress>` vendor rules + `overflow: clip`, `@supports (position-area: block-end)` popover fallback, `@media (forced-colors: active)`. |
+| `S0-B` | Stitch workflow (`stitch_ops.py doctor`, project/design-system, `/hud` & `/fleet` export or fallback log) | `[x] Done` | Live Stitch project `9409889379743133909` (`Antigravity Model Pulse`) verified via explicit `--project` (`D-008`) & `stitch_get`: HUD `af32887f71e7494e9e38e4ae4ef39b52` (`2560x2048`), Fleet `630bde1beb414834bcefe327fcf73551` (`2560x2048`), decoded locally (`L-011`). |
+| `S0-B` | `DESIGN.md`, `sidecars/pulse_cockpit/index.html`, `sidecars/pulse_cockpit/styles.css` | `[x] Done` | Canonical [`DESIGN.md`](../../DESIGN.md), strict-CSP [`index.html`](../../sidecars/pulse_cockpit/index.html), and Flexoki Light/Dark + host variable [`styles.css`](../../sidecars/pulse_cockpit/styles.css) (`!important` `preload.js` override + `*-ink` tokens per `D-008`, `100dvh; overflow: hidden;` frame per `L-012`). |
+| `S0-QA` | `tests/unit/state-dir.test.ts`, `tests/contracts/manifest-contracts.test.ts`, `STAGE_0_AUDIT.md` | `[x] Done` | `ba16e33c` (`Independent Stage 0 Auditor`) verified remediation & issued `VERDICT: APPROVED` (`17/17` tests passing, `0` failures, `0` skips); formal record in [`STAGE_0_AUDIT.md`](./STAGE_0_AUDIT.md). |
 
 ### 6.2 Verbatim Gate Command Outputs
 
 ```text
-# Paste verbatim outputs for:
-# - npm run typecheck
-# - npm run build
-# - npm test
-# - agy plugin validate . --json & agy plugin validate <installed> --strict --json
-# - node scripts/verify-context.mjs
-# - agy-pele check . --strict-mermaid
-# - stitch_ops.py doctor / export (or fallback decision ref)
+$ npm run typecheck
+> antigravity-pulse@0.1.0 typecheck
+> tsc --noEmit
+
+$ npm run build
+> antigravity-pulse@0.1.0 build
+> node scripts/build.mjs
+
+[build] Compiled 5 bundles into dist/ and sidecars/pulse_cockpit/dist/
+
+$ npm test
+> antigravity-pulse@0.1.0 test
+> npm run build && node scripts/build-tests.mjs && node --test .test-dist/*.test.cjs
+
+[build] Compiled 5 bundles into dist/ and sidecars/pulse_cockpit/dist/
+[build-tests] Compiled 2 test file(s) into .test-dist/
+▶ package.json & plugin manifest contracts
+  ✔ enforces zero runtime dependencies, 6 scripts, and strict files allowlist (1.989164ms)
+  ✔ validates plugin.json, hooks.json (L-006), mcp_config.json, sidecar.json (D-002), and SKILL.md (D-007) (1.402517ms)
+  ✔ verifies bin/ launchers (permissions, line endings, agy-node fallback) and 5 prebuilt dist bundles (0.579715ms)
+✔ package.json & plugin manifest contracts (5.33406ms)
+▶ runtime smoke tests: hook-probe, cli, mcp & inode-preserving installer
+  ✔ hook-probe.cjs fails open cleanly and emits {"decision":"allow"} for PreToolUse and {} otherwise (199.186782ms)
+  ✔ cli.cjs and mcp.cjs Stage 0 entry scaffolds respond cleanly (107.893161ms)
+  ✔ install.mjs preserves directory inode across reinstalls, passes strict agy validation, and patches installed-only on --force-patch (365.573358ms)
+  ✔ preview-ui.mjs accepts --port 0, --port=0, and PORT=0, logs bound port > 0, and serves assets + stub API (276.747885ms)
+✔ runtime smoke tests: hook-probe, cli, mcp & inode-preserving installer (950.132251ms)
+▶ UI Shell & Flexoki CSS contracts (S0-B artifacts)
+  ✔ validates index.html CSP hygiene, asset load order, DOM mounts, and styles.css Flexoki tokens (1.112209ms)
+✔ UI Shell & Flexoki CSS contracts (S0-B artifacts) (1.365304ms)
+▶ state-dir resolution, atomicity, permissions, UUIDs & ring rotation
+  ✔ resolves $PULSE_STATE_DIR priority: override > ANTIGRAVITY_PULSE_STATE_DIR > PLUGIN_DATA > homedir fallback (1.159921ms)
+  ✔ exposes exact frozen StateDirPaths keys (1.879231ms)
+  ✔ enforces 0700 dir / 0600 file permissions and atomic writes with zero residual .tmp files (1.033382ms)
+  ✔ readJsonSafe returns exact fallback on missing, empty, or corrupted JSON (0.411628ms)
+  ✔ validates 36-char UUIDs strictly and rejects traversal / invalid strings (0.730281ms)
+  ✔ appends NDJSON events and rotates only when exceeding 512 KiB (1.228835ms)
+✔ state-dir resolution, atomicity, permissions, UUIDs & ring rotation (7.848543ms)
+▶ config-store defaults, validation, persistence & prototype-pollution defense
+  ✔ exposes canonical DEFAULT_PULSE_USER_CONFIG & DEFAULT_CONFIG defaults (0.323504ms)
+  ✔ persists partial updates atomically and merges nested thresholds without clobbering siblings (1.602741ms)
+  ✔ rejects non-objects, invalid enums, out-of-range numbers, unknown keys & blocks __proto__ pollution (0.937734ms)
+✔ config-store defaults, validation, persistence & prototype-pollution defense (3.261952ms)
+ℹ tests 17
+ℹ suites 5
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1021.493138
+
+$ npm run install:global
+[install] Installed 19 file(s) atomically to /home/springtian/.gemini/config/plugins/antigravity-pulse
+[install] CLI linked at /home/springtian/.local/bin/agy-pulse
+
+$ /home/springtian/.local/bin/agy plugin validate . --json
+{
+  "dir": ".",
+  "manifest": "plugin.json",
+  "name": "antigravity-pulse",
+  "agentPluginsSpec": false,
+  "components": {
+    "agents": 0,
+    "hooks": 1,
+    "mcpServers": 1,
+    "rules": 0,
+    "sidecars": 1,
+    "skills": 1
+  },
+  "findings": [
+    {
+      "severity": "warning",
+      "file": "AGENTS.md",
+      "message": "never loaded: plugins load rules only from rules/. Move it to rules/AGENTS.md"
+    }
+  ]
+}
+
+$ /home/springtian/.local/bin/agy plugin validate ~/.gemini/config/plugins/antigravity-pulse --strict --json
+{
+  "dir": "/home/springtian/.gemini/config/plugins/antigravity-pulse",
+  "manifest": "plugin.json",
+  "name": "antigravity-pulse",
+  "agentPluginsSpec": false,
+  "components": {
+    "agents": 0,
+    "hooks": 1,
+    "mcpServers": 1,
+    "rules": 0,
+    "sidecars": 1,
+    "skills": 1
+  },
+  "findings": []
+}
+
+$ node scripts/verify-context.mjs
+[verify-context] PASS — AGENTS.md=5651B | rules=1 (alwaysOn=12960B) | skills=1 (+1 plugin) | links=26 | paths=47 on-disk, 12 planned
+
+$ /home/springtian/.local/bin/agy-pele check . --strict-mermaid
+Checked 12 diagram(s) across 20 file(s): 0 error(s), 0 warning(s).
 ```
+
+*Stitch Canvas Live Verification (`--project 9409889379743133909`, `stitch_get`)*:
+- `af32887f71e7494e9e38e4ae4ef39b52` (`Model Pulse HUD - Aux Pane`, `screenType: "DESIGN"`, `DESKTOP`, `2560x2048`)
+- `630bde1beb414834bcefe327fcf73551` (`Antigravity 2.0 Model Pulse Fleet Radar`, `screenType: "DESIGN"`, `DESKTOP`, `2560x2048`)
+- `16500565309143592318` (`DESIGN.md`, `screenType: "DOCUMENT"`, `780x1768`)
 
 ---
 
 ## 7. Stage Retrospectives & Pitfalls Encountered (MISSION II Backfill)
 
-> *To be filled during MISSION II Stage 0 closeout before atomic git commit.*
-
-- **What Went Well**: *(Pending MISSION II execution)*
-- **Pitfalls & Surprising Host/Tooling Behaviors**: *(Pending MISSION II execution; promote any reusable root causes into [`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md) as `L-008+` and decisions into [`DECISION_LOG.md`](./DECISION_LOG.md) as `D-008+`)*
-- **Follow-Ups Handed Off to Stage 1 (`S1-A`/`S1-B`/`S1-C`)**: *(Pending MISSION II execution)*
+- **What Went Well**:
+  - Disjoint `OWNED_WRITE_PATHS` across `S0-A`, `S0-B`, and `S0-QA` enabled parallel engineering foundation scaffolding, Stitch UI/UX generation, and independent contract testing with zero file conflicts.
+  - All 5 zero-dependency production bundles (`dist/*.cjs`, `sidecars/pulse_cockpit/dist/{server.mjs,ui.js}`) compile cleanly with SPDX MIT headers (`sidecar_sdk` externalized), `scripts/install.mjs` preserves target directory inodes across upgrades (`D-006`), and `agy plugin validate ~/.gemini/config/plugins/antigravity-pulse --strict --json` reports `0` errors and `0` warnings (`findings: []`, `D-007`).
+  - Independent Stage 0 QA (`ba16e33c`) caught subtle runtime/CSS edge cases before any Stage 1 feature logic began, resulting in clean remediations and `17/17` passing automated tests.
+- **Pitfalls & Surprising Host/Tooling Behaviors**:
+  - **`D-008` (Host CSS Variable Mapping & Explicit Stitch `--project`)**: Antigravity `sidecar_sdk/preload.js` applies inline `#fafafa` / `#333` fallback colors on `body`, requiring `background: var(--pulse-bg) !important; color: var(--pulse-fg) !important;` alongside `--pulse-bg: var(--background, var(--pulse-paper))`, explicit `[data-resolved-theme="light"|"dark"]` blocks, and dedicated `*-ink` WCAG `>=4.5:1` tokens paired with Flexoki Amber (`#ad8301`/`#d0a215`). Stitch CLI operations must always pass `--project 9409889379743133909` rather than mutating `~/.stitch.json`.
+  - **`L-011` (Stitch `:download` Envelope, `find screens` Filtering & `360px` Truncation)**: Stitch `v1 :download` endpoints wrap PNG (`base64`) and HTML payloads inside JSON `dataString` wrappers requiring local decoding (`screenshot_decoded.png`, `index_decoded.html`); `stitch find screens` / `export-project` only lists mounted `DOCUMENT` resources (`DESIGN.md`), requiring direct `stitch get screen <id> --project 9409889379743133909 -f json` verification for `DESIGN` screens (`af32887f71e7494e9e38e4ae4ef39b52`, `630bde1beb414834bcefe327fcf73551`); and visual PNG inspection flagged `360px` narrow-pane truncation risk across the top tabbar, hero nameplate, and bottom fuel bar.
+  - **`L-012` (Ephemeral Port `0`, `set -eu` `HOME` Guard & Overflow Containment)**: `Number(raw) || 4173` treated `--port 0` / `PORT=0` as falsy in `scripts/preview-ui.mjs` (fixed via `Number.isInteger(n) && n >= 0 && n <= 65535` + `server.address().port`); `bin/agy-pulse` under `set -eu` requires `"${HOME:-}"` in both `[ -x ... ]` and `exec`; and CSS requires `overflow: clip;` on `.pulse-progress` plus `height: 100dvh; max-height: 100dvh; overflow: hidden;` on `.pulse-app`.
+- **Follow-Ups Handed Off to Stage 1 (`S1-A`/`S1-B`/`S1-C`)**:
+  - **`S1-C` (`360px` HUD Layout Vigilance)**: When implementing `src/ui/hud-view.ts` and interactive tabs/hero/fuel bar DOM in Stage 1, actively verify zero unintended text clipping or horizontal overflow at `360px` width across (1) top tabbar (`Overview`, `Timeline`, `Quota`) vs right action buttons, (2) sticky hero `Requested ➔ Served` nameplate, and (3) bottom `36px` fuel bar (`Wk: 96.5%` / tree delta / stamp pill).
+  - **`S1-C` / `S1-QA` (Live `SidecarApp` Runtime HTTP Integration Tests)**: Stage 0 tested `scripts/preview-ui.mjs` live HTTP and inspected `sidecars/pulse_cockpit/dist/server.mjs` bundle invariants; Stage 1 MUST add live `SidecarApp` runtime HTTP tests covering `/`, `/hud`, `/fleet`, `/styles.css` (`text/css`), `/dist/ui.js` (`application/javascript`), strict CSP headers, `400` UUID/config `Response` error paths (`L-007`), and `34B` ETag `unchanged` hits.
+  - **`S1-A` / `S1-B` (Frozen Contract Consumption)**: Build `src/rpc/ls-client.ts`, `src/core/*`, and `src/hook/hook-probe.ts` strictly against frozen `src/types/{telemetry.ts,rpc.ts}` and `src/state/{state-dir.ts,config-store.ts}` (`[CONTRACT_SYNC]`).
