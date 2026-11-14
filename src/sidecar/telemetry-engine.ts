@@ -15,6 +15,7 @@ import {
   isEtagMatch,
   makeUnchangedResponse,
 } from '../core/etag';
+import { buildFleetSnapshot } from '../core/fleet-builder';
 import { toIntToken } from '../core/formatters';
 import { buildModelCatalog, type ModelCatalog } from '../core/model-catalog';
 import {
@@ -23,6 +24,7 @@ import {
   normalizeQuotaSummary,
   type QuotaBurnSample,
 } from '../core/quota-calculator';
+import { buildTimelineTurns } from '../core/timeline-builder';
 import { buildBreadcrumb, buildTopologyGraph, type TopologyBuildOutput } from '../core/topology-builder';
 import { ReadOnlyLsClient } from '../rpc/ls-client';
 import { loadConfig, updateConfigPartial } from '../state/config-store';
@@ -91,6 +93,52 @@ const HOOK_EVENT_RETENTION_MS = 120_000;
 const BURN_SAMPLE_RETENTION_MS = 10 * 60 * 1000;
 const MAX_HOOKS_PER_CASCADE = 32;
 const FS_WATCH_DEBOUNCE_MS = 50;
+const MAX_CONCURRENT_META_RPCS = 6;
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) {
+    return;
+  }
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  let cursor = 0;
+  const runners = Array.from({ length: limit }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor;
+      cursor += 1;
+      await worker(items[idx]);
+    }
+  });
+  await Promise.all(runners);
+}
+
+function stripVolatileFleetFields(
+  fleet: Omit<FleetSnapshotResponse, 'etag' | 'generatedAt' | 'unchanged'>
+) {
+  const { fetchedAt: _ignoredFetchedAt, ...stableQuota } = fleet.quota;
+  return {
+    hostConnected: fleet.hostConnected,
+    activeHeadline: fleet.activeHeadline,
+    projects: fleet.projects.map((project) => ({
+      ...project,
+      trees: project.trees.map((tree) => {
+        const { elapsedMs: _ignoredElapsed, nodes, ...restTree } = tree;
+        return {
+          ...restTree,
+          nodes: nodes.map((node) => {
+            const { phaseElapsedMs: _ignoredNodeElapsed, ...restNode } = node;
+            return restNode;
+          }),
+        };
+      }),
+    })),
+    topQuotaBurners: fleet.topQuotaBurners,
+    quota: stableQuota,
+  };
+}
 
 function createEmptyQuotaSummary(fetchedAt = new Date(0).toISOString()): QuotaSummaryView {
   return {
@@ -171,6 +219,8 @@ export class TelemetryEngine {
   private lastRequestedCidAtMs = 0;
   private activeConversationId: string | null = null;
   private lastPersistedModelKey = '';
+  private lastConfigSignature = '';
+  private turnDeltaQuotaByKey: Record<string, number> = {};
 
   constructor(options: TelemetryEngineOptions = {}) {
     this.lsClient = options.lsClient ?? new ReadOnlyLsClient();
@@ -184,12 +234,42 @@ export class TelemetryEngine {
     this.initialConfigPatch = options.initialConfig;
 
     this.config = loadConfig(this.statePaths.stateDir);
+    this.recordCurrentConfigSignature();
     this.quotaCache = {
       schemaVersion: 1,
       updatedAt: new Date(0).toISOString(),
       quota: createEmptyQuotaSummary(),
       cascadeBaselines: {},
     };
+  }
+
+  private recordCurrentConfigSignature(): void {
+    try {
+      if (!existsSync(this.statePaths.configPath)) {
+        this.lastConfigSignature = '';
+        return;
+      }
+      const st = statSync(this.statePaths.configPath);
+      this.lastConfigSignature = `${st.mtimeMs}:${st.size}`;
+    } catch {
+      // Ignore stat errors
+    }
+  }
+
+  private syncConfigIfModified(): void {
+    try {
+      if (!existsSync(this.statePaths.configPath)) {
+        return;
+      }
+      const st = statSync(this.statePaths.configPath);
+      const sig = `${st.mtimeMs}:${st.size}`;
+      if (sig !== this.lastConfigSignature) {
+        this.lastConfigSignature = sig;
+        this.config = loadConfig(this.statePaths.stateDir);
+      }
+    } catch {
+      // Keep current config on transient stat error
+    }
   }
 
   async start(): Promise<void> {
@@ -205,6 +285,7 @@ export class TelemetryEngine {
     } else {
       this.config = loadConfig(this.statePaths.stateDir);
     }
+    this.recordCurrentConfigSignature();
 
     this.hydratePersistedCaches();
     await this.refreshOnce();
@@ -288,6 +369,7 @@ export class TelemetryEngine {
           this.debounceTimer = null;
           if (name === 'config.json') {
             this.config = loadConfig(this.statePaths.stateDir);
+            this.recordCurrentConfigSignature();
           }
           void this.refreshOnce().catch((err) => {
             this.emitWarning(`State watcher refresh error: ${err instanceof Error ? err.message : String(err)}`);
@@ -483,7 +565,7 @@ export class TelemetryEngine {
   private async executeRefreshCycle(nowMs: number): Promise<void> {
     this.warnings = [];
     this.tailEventsRing(nowMs);
-    this.config = loadConfig(this.statePaths.stateDir);
+    this.syncConfigIfModified();
 
     let anyStepIncremented = false;
     let anyRunningToIdle = false;
@@ -549,24 +631,31 @@ export class TelemetryEngine {
           }
         }
 
+        cidsToFetchMeta.sort((a, b) => {
+          const aRun = summaries[a]?.status === 'CASCADE_RUN_STATUS_RUNNING' ? 1 : 0;
+          const bRun = summaries[b]?.status === 'CASCADE_RUN_STATUS_RUNNING' ? 1 : 0;
+          if (bRun !== aRun) return bRun - aRun;
+          const aMod = Date.parse(summaries[a]?.lastModifiedTime ?? '') || 0;
+          const bMod = Date.parse(summaries[b]?.lastModifiedTime ?? '') || 0;
+          return bMod - aMod;
+        });
+
         let spottedUnseenModel = false;
-        await Promise.all(
-          cidsToFetchMeta.map(async (cid) => {
-            try {
-              const metaResp = await this.lsClient.getCascadeTrajectoryGeneratorMetadata(cid);
-              const entries = metaResp.generatorMetadata ?? [];
-              this.generatorMetadataByCascade[cid] = entries;
-              this.cachedGenMetaStepCount[cid] = summaries[cid]?.stepCount ?? 0;
-              if (this.hasUnseenModelEnum(entries)) {
-                spottedUnseenModel = true;
-              }
-            } catch (err) {
-              this.emitWarning(
-                `GeneratorMetadata RPC failed for ${cid}: ${err instanceof Error ? err.message : String(err)}`
-              );
+        await runWithConcurrency(cidsToFetchMeta, MAX_CONCURRENT_META_RPCS, async (cid) => {
+          try {
+            const metaResp = await this.lsClient.getCascadeTrajectoryGeneratorMetadata(cid);
+            const entries = metaResp.generatorMetadata ?? [];
+            this.generatorMetadataByCascade[cid] = entries;
+            this.cachedGenMetaStepCount[cid] = summaries[cid]?.stepCount ?? 0;
+            if (this.hasUnseenModelEnum(entries)) {
+              spottedUnseenModel = true;
             }
-          })
-        );
+          } catch (err) {
+            this.emitWarning(
+              `GeneratorMetadata RPC failed for ${cid}: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        });
 
         if (spottedUnseenModel && !modelConfigRefreshedThisCycle) {
           try {
@@ -645,6 +734,38 @@ export class TelemetryEngine {
               this.burnSamples,
               activeSignals
             );
+            const prevBaselines = this.quotaCache.cascadeBaselines;
+            for (const [cid, nextEntry] of Object.entries(finalNormalized.cascadeBaselines)) {
+              const prevDelta = prevBaselines[cid]?.delta5hPct ?? 0;
+              const deltaGain =
+                Math.round(Math.max(0, nextEntry.delta5hPct - prevDelta) * 1e8) / 1e8;
+              if (deltaGain <= 0) {
+                continue;
+              }
+              const entries = this.generatorMetadataByCascade[cid];
+              if (!entries || entries.length === 0) {
+                continue;
+              }
+              let latestTurnKey: string | null = null;
+              for (let i = entries.length - 1; i >= 0; i -= 1) {
+                const entry = entries[i];
+                if (!entry?.chatModel) continue;
+                const indices = Array.isArray(entry.stepIndices)
+                  ? entry.stepIndices.filter(
+                      (n): n is number => typeof n === 'number' && Number.isFinite(n)
+                    )
+                  : [];
+                latestTurnKey =
+                  indices.length > 0 ? `${cid}:${Math.min(...indices)}` : `${cid}:${i}`;
+                break;
+              }
+              if (latestTurnKey) {
+                const prevTurnDelta = this.turnDeltaQuotaByKey[latestTurnKey] ?? 0;
+                this.turnDeltaQuotaByKey[latestTurnKey] =
+                  Math.round((prevTurnDelta + deltaGain) * 1e8) / 1e8;
+              }
+            }
+
             this.quotaCache = {
               schemaVersion: 1,
               updatedAt: nowIso,
@@ -692,7 +813,11 @@ export class TelemetryEngine {
   private resolveActiveConversationId(requestedCid: string | null, nowMs: number): string | null {
     const nodes = this.topology.nodesByCascadeId;
     if (requestedCid && isValidUuid(requestedCid)) {
-      if (nodes[requestedCid] || this.trajectories[requestedCid]) {
+      if (
+        nodes[requestedCid] ||
+        this.trajectories[requestedCid] ||
+        this.generatorMetadataByCascade[requestedCid]
+      ) {
         return requestedCid;
       }
     }
@@ -700,12 +825,19 @@ export class TelemetryEngine {
     if (
       this.lastRequestedCid &&
       nowMs - this.lastRequestedCidAtMs <= RECENT_REQUEST_TTL_MS &&
-      (nodes[this.lastRequestedCid] || this.trajectories[this.lastRequestedCid])
+      (nodes[this.lastRequestedCid] ||
+        this.trajectories[this.lastRequestedCid] ||
+        this.generatorMetadataByCascade[this.lastRequestedCid])
     ) {
       return this.lastRequestedCid;
     }
 
-    if (this.latestHookCid && (nodes[this.latestHookCid] || this.trajectories[this.latestHookCid])) {
+    if (
+      this.latestHookCid &&
+      (nodes[this.latestHookCid] ||
+        this.trajectories[this.latestHookCid] ||
+        this.generatorMetadataByCascade[this.latestHookCid])
+    ) {
       return this.latestHookCid;
     }
 
@@ -750,29 +882,19 @@ export class TelemetryEngine {
     };
   }
 
-  private buildMinimalFleetStub(nowIso: string): FleetSnapshotResponse {
-    const runningNodes = Object.values(this.topology.nodesByCascadeId).filter(
-      (n) => n.phase !== 'IDLE' && n.phase !== 'ERROR_OR_QUOTA'
-    );
-    const runningRoots = runningNodes.filter((n) => n.parentCascadeId === null).length;
-    const runningSubagents = Math.max(0, runningNodes.length - runningRoots);
-    const semanticPayload = {
+  private buildCurrentFleetSnapshot(nowMs: number): FleetSnapshotResponse {
+    const fleetCore = buildFleetSnapshot({
+      nowMs,
       hostConnected: this.hostConnected,
-      activeHeadline: {
-        runningRoots,
-        runningSubagents,
-        totalRunningNodes: runningNodes.length,
-        modelHistogram: [],
-      },
-      projects: [],
-      topQuotaBurners: [],
+      trajectories: this.trajectories,
+      nodesByCascadeId: this.topology.nodesByCascadeId,
       quota: this.quotaCache.quota,
-    };
-    const etag = computeDeterministicEtag(semanticPayload);
+      cascadeBaselines: this.quotaCache.cascadeBaselines,
+    });
+    const etag = computeDeterministicEtag(stripVolatileFleetFields(fleetCore));
     return {
       etag,
-      generatedAt: nowIso,
-      ...semanticPayload,
+      ...fleetCore,
     };
   }
 
@@ -789,18 +911,20 @@ export class TelemetryEngine {
       hostConnected: this.hostConnected,
       activeConversationId: activeCid,
       nodesByCascadeId: this.topology.nodesByCascadeId,
-      fleet: this.buildMinimalFleetStub(nowIso),
+      fleet: this.buildCurrentFleetSnapshot(nowMs),
       quota: quotaView,
     };
     writeJsonAtomic(this.statePaths.liveSnapshot, filePayload);
   }
 
   getConfig(): PulseUserConfig {
+    this.syncConfigIfModified();
     return this.config;
   }
 
   updateConfig(patch: unknown): PulseUserConfig {
     this.config = updateConfigPartial(patch, this.statePaths.stateDir);
+    this.recordCurrentConfigSignature();
     // Re-evaluate context thresholds immediately against cached graph without waiting for next poll
     const nowMs = Date.now();
     this.topology = buildTopologyGraph({
@@ -878,19 +1002,26 @@ export class TelemetryEngine {
   }
 
   getTimelineSnapshot(
-    conversationId: string | null,
-    scope: 'conversation' | 'tree',
+    conversationId?: string | null,
+    scope?: 'conversation' | 'tree',
     clientEtag?: string
   ): TimelineSnapshotResponse | UnchangedEtagResponse {
+    this.syncConfigIfModified();
     const nowMs = Date.now();
-    const effectiveCid = this.resolveActiveConversationId(conversationId, nowMs);
-    const rootCascadeId = effectiveCid
-      ? (this.topology.rootByCascadeId[effectiveCid] ?? effectiveCid)
-      : null;
+    const resolvedScope: 'conversation' | 'tree' = scope ?? this.config.timelineScope;
+    const effectiveCid = this.resolveActiveConversationId(conversationId ?? null, nowMs);
+    const result = buildTimelineTurns({
+      activeConversationId: effectiveCid ?? '',
+      scope: resolvedScope,
+      nodesByCascadeId: this.topology.nodesByCascadeId,
+      generatorMetadataByCascade: this.generatorMetadataByCascade,
+      modelCatalog: this.modelCatalog,
+      turnDeltaQuotaByKey: this.turnDeltaQuotaByKey,
+    });
     const semanticPayload = {
-      rootCascadeId,
-      scope,
-      turns: [],
+      rootCascadeId: result.rootCascadeId,
+      scope: result.scope,
+      turns: result.turns,
     };
     const etag = computeDeterministicEtag(semanticPayload);
     if (isEtagMatch(clientEtag, etag)) {
@@ -904,11 +1035,11 @@ export class TelemetryEngine {
   }
 
   getFleetSnapshot(clientEtag?: string): FleetSnapshotResponse | UnchangedEtagResponse {
-    const stub = this.buildMinimalFleetStub(new Date().toISOString());
-    if (isEtagMatch(clientEtag, stub.etag)) {
-      return makeUnchangedResponse(stub.etag);
+    const snapshot = this.buildCurrentFleetSnapshot(Date.now());
+    if (isEtagMatch(clientEtag, snapshot.etag)) {
+      return makeUnchangedResponse(snapshot.etag);
     }
-    return stub;
+    return snapshot;
   }
 
   getHealthInfo(): {

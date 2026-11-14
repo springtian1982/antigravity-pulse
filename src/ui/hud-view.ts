@@ -5,6 +5,7 @@ import {
   formatPct,
   formatTokensCompact,
 } from '../core/formatters';
+import { isOverthinkingTurn } from '../core/timeline-builder';
 import type {
   CascadeNodeView,
   EffortTier,
@@ -13,6 +14,8 @@ import type {
   LifecyclePhase,
   ModelTier,
   QuotaBucketView,
+  TimelineSnapshotResponse,
+  TimelineTurnItem,
 } from '../types/telemetry';
 
 export type HudTabId = 'overview' | 'timeline' | 'quota';
@@ -23,6 +26,10 @@ export interface HudUiLocalState {
   openPopoverNodeId: string | null;
   isUpdatingConfig: boolean;
   statusMessage: string | null;
+  timelineScope: 'conversation' | 'tree' | null;
+  timelineSnapshot: TimelineSnapshotResponse | null;
+  timelineLoading: boolean;
+  timelineError: string | null;
 }
 
 export interface HudRenderBindings {
@@ -33,6 +40,7 @@ export interface HudRenderBindings {
   onInspectNode(nodeId: string | null): void;
   onCycleStampMode(): void;
   onSetStampMode(mode: InlineStampMode): void;
+  onSetTimelineScope(scope: 'conversation' | 'tree'): void;
 }
 
 export interface HudViewController {
@@ -616,29 +624,193 @@ function renderOverviewPanelHtml(
   `;
 }
 
-function renderTimelinePlaceholderHtml(snapshot: HudSnapshotResponse): string {
-  const active = snapshot.activeNode;
-  const turnSummary = active ? `${active.turnCount} turns · ${active.stepCount} steps` : '0 turns';
-  const ttft = active?.lastTtftMs !== null && active?.lastTtftMs !== undefined
-    ? formatDurationCompact(active.lastTtftMs)
-    : '—';
-  const streaming = active?.lastStreamingMs !== null && active?.lastStreamingMs !== undefined
-    ? formatDurationCompact(active.lastStreamingMs)
-    : '—';
+function formatStepRangeLabel(stepIndices: number[]): string {
+  if (!Array.isArray(stepIndices) || stepIndices.length === 0) {
+    return 'Steps —';
+  }
+  const finite = stepIndices.filter((n) => typeof n === 'number' && Number.isFinite(n));
+  if (finite.length === 0) {
+    return 'Steps —';
+  }
+  const minStep = Math.min(...finite);
+  const maxStep = Math.max(...finite);
+  return minStep === maxStep ? `Step ${minStep}` : `Steps ${minStep}–${maxStep}`;
+}
+
+function renderTimelineTurnCardHtml(
+  turn: TimelineTurnItem,
+  maxTurnMs: number,
+  effectiveScope: 'conversation' | 'tree',
+  activeConversationId: string | null
+): string {
+  const turnTier = sanitizeTier(turn.tier);
+  const stepLabel = formatStepRangeLabel(turn.stepIndices);
+  const ttftMs = Math.max(0, Number.isFinite(turn.ttftMs) ? turn.ttftMs : 0);
+  const streamingMs = Math.max(0, Number.isFinite(turn.streamingMs) ? turn.streamingMs : 0);
+  const totalMs = Math.max(
+    0,
+    Number.isFinite(turn.totalMs) && turn.totalMs > 0 ? turn.totalMs : ttftMs + streamingMs
+  );
+  const denomMs = Math.max(1, ttftMs + streamingMs, totalMs);
+  const trackPct = totalMs > 0 ? Math.max(4, Math.min(100, (totalMs / maxTurnMs) * 100)) : 0;
+  const ttftPct = totalMs > 0 ? Math.max(0, Math.min(100, (ttftMs / denomMs) * 100)) : 0;
+  const streamPct =
+    totalMs > 0 ? Math.max(0, Math.min(100 - ttftPct, (streamingMs / denomMs) * 100)) : 0;
+
+  const tokPerSec =
+    streamingMs > 0 && turn.outputTokens > 0
+      ? Math.round((turn.outputTokens * 1000) / streamingMs)
+      : null;
+
+  const showNodeChip =
+    effectiveScope === 'tree' && Boolean(turn.cascadeId) && turn.cascadeId !== activeConversationId;
+  const nodeChipLabel = turn.role || turn.cascadeTitle || turn.cascadeId.slice(0, 8);
+  const nodeChipHtml = showNodeChip
+    ? UUID_RE.test(turn.cascadeId)
+      ? `<button type="button" class="pulse-btn-compact pulse-timeline-node-chip" data-action="jump-node" data-cid="${escapeHtml(turn.cascadeId)}" title="Switch to ${escapeHtml(nodeChipLabel)}" aria-label="Switch to ${escapeHtml(nodeChipLabel)}"><span class="pulse-btn-label">${escapeHtml(nodeChipLabel)}</span></button>`
+      : `<span class="pulse-node-kind"><span class="pulse-btn-label">${escapeHtml(nodeChipLabel)}</span></span>`
+    : '';
+
+  const modelLabel = turn.servedModelDisplayName || turn.responseModel || 'Unknown Model';
+  const modelTooltip =
+    turn.responseModel && turn.responseModel !== modelLabel
+      ? `${modelLabel} (${turn.responseModel})`
+      : modelLabel;
+
+  const hasRouteShift = Boolean(turn.routingChangedFromPrevTurn);
+  const requestedLabel = turn.requestedLabel || '';
+  const isAutoRouted = !hasRouteShift && /auto|orchestrator/i.test(requestedLabel);
+  const routeBadgeHtml = hasRouteShift
+    ? `<span class="pulse-pill pulse-tier-orchestrator pulse-timeline-shift-pill" data-tier="orchestrator" data-testid="timeline-route-shift" title="${escapeHtml(`${requestedLabel || 'Prev'} ➔ ${modelLabel}`)}"><span class="pulse-btn-label">⚡ ${escapeHtml(requestedLabel || 'Prev')} ➔ ${escapeHtml(modelLabel)}</span></span>`
+    : isAutoRouted
+      ? `<span class="pulse-pill pulse-tier-orchestrator pulse-timeline-auto-pill" data-tier="orchestrator" title="${escapeHtml(`${requestedLabel} ➔ ${modelLabel}`)}"><span class="pulse-btn-label">${escapeHtml(requestedLabel)} ➔ ${escapeHtml(modelLabel)}</span></span>`
+      : '';
+
+  // L-003: retryCount is already (retryInfos.length - 1); badge strictly when > 0
+  const retryBadgeHtml =
+    turn.retryCount > 0
+      ? `<span class="pulse-pill pulse-tier-alert" data-tier="alert" data-testid="timeline-retry-badge">⚠ Retried ×${turn.retryCount}</span>`
+      : '';
+
+  const overthinkingBadgeHtml = isOverthinkingTurn(turn)
+    ? `<span class="pulse-pill pulse-tier-orchestrator" data-tier="orchestrator" data-testid="timeline-overthinking-badge">💡 Overthinking</span>`
+    : '';
+
+  const totalIn = turn.inputTokens + turn.cacheReadTokens;
+  const ctxText = turn.contextMaxTokens > 0 ? `${Math.round(turn.contextPct)}%` : '—';
+  const deltaText = formatDeltaQuotaPct(turn.deltaQuota5hPct);
 
   return `
-    <article class="pulse-quota-card" data-testid="timeline-placeholder">
-      <strong>Timeline 调用轴 (Stage 2 Flame Axis 就绪中)</strong>
-      <p class="pulse-empty-note">
-        当前焦点会话：${escapeHtml(active?.title ?? '—')} (${escapeHtml(turnSummary)})
-      </p>
-      <p class="pulse-empty-note tabular-nums">
-        最近一轮实测：TTFT ${escapeHtml(ttft)} · Streaming ${escapeHtml(streaming)} · Cache ${escapeHtml(formatPct(active?.cacheHitPct, 1))}
-      </p>
-      <p class="pulse-empty-note">
-        Stage 2 将在此面板接入逐轮 TTFT vs Streaming 火焰图、Thinking Token 占比与模型路由跳变高亮。
-      </p>
-    </article>
+    <li class="pulse-timeline-item">
+      <article class="pulse-timeline-card pulse-tier-${turnTier}" data-tier="${turnTier}" data-testid="timeline-turn-card" data-turn-index="${turn.turnIndex}">
+        <div class="pulse-timeline-turn-head">
+          <div class="pulse-timeline-turn-left">
+            <span class="pulse-timeline-turn-id tabular-nums">Turn #${turn.turnIndex}</span>
+            <span class="pulse-timeline-steps tabular-nums">${escapeHtml(stepLabel)}</span>
+            ${nodeChipHtml}
+          </div>
+          <div class="pulse-timeline-badges">
+            <span class="pulse-pill pulse-tier-${turnTier}" data-tier="${turnTier}" title="${escapeHtml(modelTooltip)}"><span class="pulse-btn-label">${escapeHtml(modelLabel)}</span></span>
+            ${routeBadgeHtml}
+            ${retryBadgeHtml}
+            ${overthinkingBadgeHtml}
+          </div>
+        </div>
+        <div class="pulse-timeline-flame-wrap">
+          <div
+            class="pulse-timeline-bar"
+            role="img"
+            aria-label="Turn ${turn.turnIndex} flame: TTFT ${escapeHtml(formatDurationCompact(ttftMs))}, Streaming ${escapeHtml(formatDurationCompact(streamingMs))}, Total ${escapeHtml(formatDurationCompact(totalMs))}"
+          >
+            <div class="pulse-timeline-bar-fill" style="width: ${trackPct.toFixed(1)}%;">
+              <span class="pulse-timeline-seg pulse-timeline-seg-ttft" data-segment="ttft" style="width: ${ttftPct.toFixed(1)}%;"></span>
+              <span class="pulse-timeline-seg pulse-timeline-seg-stream" data-segment="stream" style="width: ${streamPct.toFixed(1)}%;"></span>
+            </div>
+          </div>
+          <div class="pulse-timeline-timing-row tabular-nums">
+            <span>TTFT <strong>${escapeHtml(formatDurationCompact(ttftMs))}</strong></span>
+            <span>Stream <strong>${escapeHtml(formatDurationCompact(streamingMs))}</strong>${tokPerSec !== null ? ` · ${tokPerSec} tok/s` : ''}</span>
+            <span class="pulse-timeline-total">Σ <strong>${escapeHtml(formatDurationCompact(totalMs))}</strong></span>
+          </div>
+        </div>
+        <div class="pulse-timeline-meta-row tabular-nums">
+          <span>Think ${escapeHtml(formatTokensCompact(turn.thinkingOutputTokens))} / ${escapeHtml(formatTokensCompact(turn.outputTokens))} (${Math.round(turn.thinkingRatioPct)}%)</span>
+          <span>In ${escapeHtml(formatTokensCompact(totalIn))} · Cache ${escapeHtml(formatPct(turn.cacheHitPct, 1))}</span>
+          <span>CTX ${escapeHtml(ctxText)}</span>
+          <span>Δ5h ${escapeHtml(deltaText)}</span>
+        </div>
+      </article>
+    </li>
+  `;
+}
+
+function renderTimelinePanelHtml(
+  snapshot: HudSnapshotResponse,
+  uiState: HudUiLocalState
+): string {
+  const effectiveScope: 'conversation' | 'tree' =
+    uiState.timelineScope ?? uiState.timelineSnapshot?.scope ?? snapshot.config.timelineScope ?? 'tree';
+  const timelineSnap = uiState.timelineSnapshot;
+  // Backend buildTimelineTurns already returns reverse-chronological turns (Turn #N -> Turn #1); do NOT double-reverse.
+  const turns = timelineSnap?.turns ?? [];
+  const maxTurnMs = Math.max(
+    1,
+    ...turns.map((t) =>
+      Number.isFinite(t.totalMs) && t.totalMs > 0 ? t.totalMs : t.ttftMs + t.streamingMs
+    )
+  );
+
+  const errorBannerHtml = uiState.timelineError
+    ? `<aside class="pulse-banner pulse-tier-alert" data-tier="alert" role="alert">${escapeHtml(uiState.timelineError)}</aside>`
+    : '';
+
+  const bodyHtml =
+    uiState.timelineLoading && !timelineSnap
+      ? '<div class="pulse-quota-card" data-testid="timeline-loading"><p class="pulse-empty-note">正在加载逐轮调用火焰轴…</p></div>'
+      : turns.length === 0
+        ? `<div class="pulse-quota-card" data-testid="timeline-empty"><p class="pulse-empty-note">当前${effectiveScope === 'tree' ? '会话树' : '会话'}暂无可展示的模型调用轮次。</p></div>`
+        : `<ol class="pulse-timeline-list" data-testid="timeline-turns">${turns
+            .map((t) =>
+              renderTimelineTurnCardHtml(
+                t,
+                maxTurnMs,
+                effectiveScope,
+                snapshot.activeConversationId
+              )
+            )
+            .join('')}</ol>`;
+
+  return `
+    <div class="pulse-timeline-panel" data-testid="timeline-tab-panel">
+      <div class="pulse-section-head pulse-timeline-header">
+        <div class="pulse-topbar-controls" role="group" aria-label="Timeline scope" data-testid="timeline-scope-group">
+          <button
+            type="button"
+            class="pulse-btn-compact"
+            data-action="set-timeline-scope"
+            data-scope="conversation"
+            data-testid="timeline-scope-conversation"
+            aria-pressed="${effectiveScope === 'conversation' ? 'true' : 'false'}"
+          ><span class="pulse-btn-label">当前会话</span></button>
+          <button
+            type="button"
+            class="pulse-btn-compact"
+            data-action="set-timeline-scope"
+            data-scope="tree"
+            data-testid="timeline-scope-tree"
+            aria-pressed="${effectiveScope === 'tree' ? 'true' : 'false'}"
+          ><span class="pulse-btn-label">整棵会话树</span></button>
+        </div>
+        <span class="pulse-section-title tabular-nums" data-testid="timeline-turn-count">${turns.length} turns</span>
+      </div>
+      <div class="pulse-timeline-legend tabular-nums" aria-label="Flame bar legend">
+        <span class="pulse-legend-item"><span class="pulse-legend-swatch" data-segment="ttft" aria-hidden="true"></span>TTFT</span>
+        <span class="pulse-legend-item"><span class="pulse-legend-swatch" data-segment="stream" aria-hidden="true"></span>Streaming</span>
+        <span class="pulse-timeline-legend-note">${uiState.timelineLoading ? '同步中…' : '最新调用置顶'}</span>
+      </div>
+      ${errorBannerHtml}
+      ${bodyHtml}
+    </div>
   `;
 }
 
@@ -799,8 +971,10 @@ export function createHudView(
   const fuelSlot = root.querySelector<HTMLElement>('[data-slot="fuel"]')!;
   const popoverEl = root.querySelector<HTMLElement>('#pulse-node-popover')!;
 
+  const scrollEl = root.querySelector<HTMLElement>('.pulse-hud-scroll');
   let lastSnapshot: HudSnapshotResponse | null = null;
   let lastActiveNodeId: string | null = null;
+  let lastRenderedTab: HudTabId = 'overview';
   let closeTimer: number | null = null;
 
   const clearCloseTimer = () => {
@@ -1002,6 +1176,13 @@ export function createHudView(
         }
         break;
       }
+      case 'set-timeline-scope': {
+        const scope = actionEl.getAttribute('data-scope');
+        if (scope === 'conversation' || scope === 'tree') {
+          bindings.onSetTimelineScope(scope);
+        }
+        break;
+      }
       default:
         break;
     }
@@ -1095,12 +1276,16 @@ export function createHudView(
     render(snapshot, uiState, snapshotReceivedAtMs) {
       lastSnapshot = snapshot;
       lastActiveNodeId = uiState.openPopoverNodeId;
+      const tabChanged = lastRenderedTab !== uiState.activeTab;
+      lastRenderedTab = uiState.activeTab;
+      const prevScrollTop = !tabChanged && scrollEl ? scrollEl.scrollTop : 0;
       syncTabs(uiState.activeTab);
 
       if (!snapshot) {
         statusEl.textContent = 'Connecting';
         heroSlot.innerHTML = '';
         overviewPanel.innerHTML = '<p class="pulse-empty-note">正在连接 Model Pulse Sidecar…</p>';
+        timelinePanel.innerHTML = '<p class="pulse-empty-note">正在连接 Model Pulse Sidecar…</p>';
         fuelSlot.innerHTML = '';
         return;
       }
@@ -1114,9 +1299,12 @@ export function createHudView(
         nowMs,
         snapshotReceivedAtMs
       );
-      timelinePanel.innerHTML = renderTimelinePlaceholderHtml(snapshot);
+      timelinePanel.innerHTML = renderTimelinePanelHtml(snapshot, uiState);
       quotaPanel.innerHTML = renderQuotaPanelHtml(snapshot, uiState);
       fuelSlot.innerHTML = renderFuelBarHtml(snapshot);
+      if (scrollEl) {
+        scrollEl.scrollTop = prevScrollTop;
+      }
 
       if (uiState.openPopoverNodeId) {
         const node = snapshot.treeNodes.find((n) => n.cascadeId === uiState.openPopoverNodeId);

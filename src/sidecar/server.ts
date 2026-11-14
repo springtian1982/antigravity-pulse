@@ -209,18 +209,25 @@ export async function createPulseSidecarServer(
   app.api(
     '/api/timeline',
     (data): TimelineSnapshotResponse | UnchangedEtagResponse | Response => {
+      if (data.conversationId !== undefined && typeof data.conversationId !== 'string') {
+        return make400Json('Invalid conversationId UUID');
+      }
       const rawCid = typeof data.conversationId === 'string' ? data.conversationId.trim() : '';
       if (rawCid && !isValidUuid(rawCid)) {
         return make400Json('Invalid conversationId UUID');
       }
-      const rawScope = typeof data.scope === 'string' ? data.scope.trim() : 'tree';
-      if (rawScope !== 'conversation' && rawScope !== 'tree') {
-        return make400Json('Invalid timeline scope: expected conversation | tree');
+      let requestedScope: 'conversation' | 'tree' | undefined;
+      if (data.scope !== undefined) {
+        const rawScope = typeof data.scope === 'string' ? data.scope.trim() : '';
+        if (rawScope !== 'conversation' && rawScope !== 'tree') {
+          return make400Json('Invalid timeline scope: expected conversation | tree');
+        }
+        requestedScope = rawScope;
       }
       const hostCid = app.config.conversationId?.trim() ?? '';
       const requestedCid = rawCid || (isValidUuid(hostCid) ? hostCid : null);
       const clientEtag = typeof data.etag === 'string' ? data.etag.trim() : undefined;
-      return engine.getTimelineSnapshot(requestedCid, rawScope, clientEtag);
+      return engine.getTimelineSnapshot(requestedCid, requestedScope, clientEtag);
     },
     'GET'
   );

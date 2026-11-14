@@ -437,6 +437,10 @@ function computeHudSemanticEtag(snapshot) {
   return computeDeterministicEtag(stripVolatileHudFields(snapshot));
 }
 
+// src/core/topology-builder.ts
+import { existsSync as existsSync2, readdirSync, readFileSync as readFileSync2 } from "node:fs";
+import path2 from "node:path";
+
 // src/core/formatters.ts
 function toIntToken(v) {
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v.trim()) : 0;
@@ -868,270 +872,6 @@ function reconcileRequestedVsServed(params) {
     retryCount
   };
 }
-
-// src/core/quota-calculator.ts
-var FIVE_MIN_MS = 5 * 60 * 1e3;
-var RESET_HYSTERESIS = 5e-3;
-function round8(value) {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  return Math.round(value * 1e8) / 1e8;
-}
-function formatResetCountdown(resetTime, nowMs = Date.now()) {
-  if (!resetTime || typeof resetTime !== "string") {
-    return { resetInSeconds: null, resetInLabel: "\u2014" };
-  }
-  const targetMs = Date.parse(resetTime);
-  if (!Number.isFinite(targetMs)) {
-    return { resetInSeconds: null, resetInLabel: "\u2014" };
-  }
-  const diffSec = Math.max(0, Math.floor((targetMs - nowMs) / 1e3));
-  if (diffSec <= 0) {
-    return { resetInSeconds: 0, resetInLabel: "0m" };
-  }
-  if (diffSec < 3600) {
-    return { resetInSeconds: diffSec, resetInLabel: `${Math.ceil(diffSec / 60)}m` };
-  }
-  if (diffSec < 86400) {
-    const hours2 = Math.floor(diffSec / 3600);
-    const mins = Math.floor(diffSec % 3600 / 60);
-    return { resetInSeconds: diffSec, resetInLabel: `${hours2}h ${mins}m` };
-  }
-  const days = Math.floor(diffSec / 86400);
-  const hours = Math.floor(diffSec % 86400 / 3600);
-  return { resetInSeconds: diffSec, resetInLabel: `${days}d ${hours}h` };
-}
-function computeBurnRate5hPctPerMin(samples, nowMs) {
-  if (!Array.isArray(samples) || samples.length < 2) {
-    return null;
-  }
-  const valid = samples.filter(
-    (s) => Number.isFinite(s.tsMs) && Number.isFinite(s.remainingFraction) && s.remainingFraction >= 0 && s.remainingFraction <= 1
-  ).sort((a, b) => a.tsMs - b.tsMs);
-  if (valid.length < 2) {
-    return null;
-  }
-  const refMs = nowMs !== void 0 && Number.isFinite(nowMs) ? nowMs : valid[valid.length - 1].tsMs;
-  const windowSamples = valid.filter((s) => s.tsMs >= refMs - FIVE_MIN_MS && s.tsMs <= refMs);
-  if (windowSamples.length < 2) {
-    return null;
-  }
-  const elapsedMs = windowSamples[windowSamples.length - 1].tsMs - windowSamples[0].tsMs;
-  if (elapsedMs < 1e4) {
-    return null;
-  }
-  let positiveDropsPct = 0;
-  for (let i = 1; i < windowSamples.length; i += 1) {
-    const drop = windowSamples[i - 1].remainingFraction - windowSamples[i].remainingFraction;
-    if (drop > 0) {
-      positiveDropsPct += drop * 100;
-    }
-  }
-  if (positiveDropsPct <= 0) {
-    return null;
-  }
-  const elapsedMinutes = elapsedMs / 6e4;
-  return elapsedMinutes > 0 ? round8(positiveDropsPct / elapsedMinutes) : null;
-}
-function updateCascadeQuotaBaselines(input) {
-  const nextBaselines = {};
-  for (const [cid, entry] of Object.entries(input.prevBaselines)) {
-    nextBaselines[cid] = { ...entry };
-  }
-  const dedupedSignals = /* @__PURE__ */ new Map();
-  for (const signal of input.activeCascades) {
-    if (!signal.cascadeId) continue;
-    const prev = dedupedSignals.get(signal.cascadeId);
-    if (!prev) {
-      dedupedSignals.set(signal.cascadeId, { ...signal });
-    } else {
-      dedupedSignals.set(signal.cascadeId, {
-        cascadeId: signal.cascadeId,
-        isRunning: prev.isRunning || signal.isRunning,
-        stepCountIncremented: Boolean(prev.stepCountIncremented || signal.stepCountIncremented),
-        tokenDelta: Math.max(0, prev.tokenDelta ?? 0) + Math.max(0, signal.tokenDelta ?? 0)
-      });
-    }
-  }
-  const ensureBaseline = (cid) => {
-    const existing = nextBaselines[cid];
-    if (existing) {
-      return existing;
-    }
-    const created = {
-      firstSeenAt: input.nowIso,
-      baseline5hFraction: input.currGlobal5hFraction,
-      last5hFraction: input.currGlobal5hFraction,
-      delta5hPct: 0
-    };
-    nextBaselines[cid] = created;
-    return created;
-  };
-  for (const cid of dedupedSignals.keys()) {
-    ensureBaseline(cid);
-  }
-  for (const cid of input.allKnownCascadeIds ?? []) {
-    if (cid) ensureBaseline(cid);
-  }
-  const prevGlobal = input.prevGlobal5hFraction;
-  const currGlobal = input.currGlobal5hFraction;
-  if (currGlobal === null || !Number.isFinite(currGlobal)) {
-    return nextBaselines;
-  }
-  if (prevGlobal === null || !Number.isFinite(prevGlobal)) {
-    for (const entry of Object.values(nextBaselines)) {
-      if (entry.baseline5hFraction === null) {
-        entry.baseline5hFraction = currGlobal;
-      }
-      entry.last5hFraction = currGlobal;
-    }
-    return nextBaselines;
-  }
-  if (currGlobal > prevGlobal + RESET_HYSTERESIS) {
-    for (const entry of Object.values(nextBaselines)) {
-      entry.baseline5hFraction = currGlobal;
-      entry.last5hFraction = currGlobal;
-      entry.delta5hPct = Math.max(0, entry.delta5hPct);
-    }
-    return nextBaselines;
-  }
-  if (currGlobal <= prevGlobal) {
-    const tickDropPct = round8(Math.max(0, (prevGlobal - currGlobal) * 100));
-    if (tickDropPct > 0) {
-      const attributed = Array.from(dedupedSignals.values()).filter(
-        (c) => c.isRunning || c.stepCountIncremented || (c.tokenDelta ?? 0) > 0
-      );
-      if (attributed.length > 0) {
-        const totalTokenDelta = attributed.reduce(
-          (sum, c) => sum + Math.max(0, c.tokenDelta ?? 0),
-          0
-        );
-        for (const sig of attributed) {
-          const entry = ensureBaseline(sig.cascadeId);
-          const share = totalTokenDelta > 0 ? tickDropPct * (Math.max(0, sig.tokenDelta ?? 0) / totalTokenDelta) : tickDropPct / attributed.length;
-          entry.delta5hPct = round8(Math.max(0, entry.delta5hPct + share));
-        }
-      }
-    }
-  }
-  for (const entry of Object.values(nextBaselines)) {
-    entry.last5hFraction = currGlobal;
-  }
-  return nextBaselines;
-}
-function toBucketView(rawBucket, groupId, nowMs) {
-  const bucketId = (rawBucket.bucketId ?? "").trim();
-  const displayName = (rawBucket.displayName ?? bucketId) || "Quota";
-  const rawFraction = typeof rawBucket.remainingFraction === "number" && Number.isFinite(rawBucket.remainingFraction) ? rawBucket.remainingFraction : 0;
-  const remainingFraction = Math.min(1, Math.max(0, rawFraction));
-  const remainingPct = remainingFraction * 100;
-  const resetTime = rawBucket.resetTime ?? null;
-  const { resetInSeconds, resetInLabel } = formatResetCountdown(resetTime, nowMs);
-  const inferredWindow = rawBucket.window?.trim() || (/week/i.test(`${bucketId} ${displayName}`) ? "weekly" : "5h");
-  return {
-    bucketId,
-    ...groupId ? { groupId } : {},
-    displayName,
-    window: inferredWindow,
-    remainingFraction,
-    remainingPct,
-    resetTime,
-    resetInSeconds,
-    resetInLabel,
-    isLowAlert: remainingPct < 15
-  };
-}
-function normalizeQuotaSummary(raw, prevCache, activeTreeNodeIds = [], fetchedAt = (/* @__PURE__ */ new Date()).toISOString(), burnSamples = [], activeCascades) {
-  const parsedMs = Date.parse(fetchedAt);
-  const nowMs = Number.isFinite(parsedMs) ? parsedMs : Date.now();
-  const groups = raw?.response?.groups ?? raw?.groups ?? [];
-  const buckets = [];
-  for (const group of groups) {
-    for (const rawBucket of group.buckets ?? []) {
-      buckets.push(toBucketView(rawBucket, group.groupId, nowMs));
-    }
-  }
-  const findSlot = (exactId, fallbackRe) => buckets.find((b) => b.bucketId === exactId) ?? buckets.find((b) => fallbackRe.test(`${b.bucketId} ${b.displayName}`)) ?? null;
-  const gemini5h = findSlot("gemini-5h", /gemini.*5h/i);
-  const geminiWeekly = findSlot("gemini-weekly", /gemini.*week/i);
-  const thirdParty5h = findSlot("3p-5h", /(?:3p|third[-_ ]?party|claude).*5h/i);
-  const thirdPartyWeekly = findSlot("3p-weekly", /(?:3p|third[-_ ]?party|claude).*week/i);
-  const uniqueTreeIds = Array.from(new Set(activeTreeNodeIds.filter(Boolean)));
-  const effectiveSignals = activeCascades !== void 0 ? activeCascades : uniqueTreeIds.map((cascadeId) => ({
-    cascadeId,
-    isRunning: true
-  }));
-  const prevGlobal5hFraction = prevCache?.quota?.gemini5h?.remainingFraction ?? null;
-  const currGlobal5hFraction = gemini5h?.remainingFraction ?? null;
-  const cascadeBaselines = updateCascadeQuotaBaselines({
-    prevBaselines: prevCache?.cascadeBaselines ?? {},
-    prevGlobal5hFraction,
-    currGlobal5hFraction,
-    activeCascades: effectiveSignals,
-    allKnownCascadeIds: uniqueTreeIds,
-    nowIso: fetchedAt
-  });
-  let treeNetDelta5hPct = null;
-  if (uniqueTreeIds.length > 0) {
-    let hasAnyBaseline = false;
-    let totalDelta = 0;
-    for (const cid of uniqueTreeIds) {
-      const entry = cascadeBaselines[cid];
-      if (entry) {
-        hasAnyBaseline = true;
-        totalDelta += Math.max(0, entry.delta5hPct);
-      }
-    }
-    if (hasAnyBaseline) {
-      treeNetDelta5hPct = round8(totalDelta);
-    }
-  }
-  const burnRate5hPctPerMin = computeBurnRate5hPctPerMin(burnSamples, nowMs);
-  return {
-    quota: {
-      fetchedAt,
-      buckets,
-      gemini5h,
-      geminiWeekly,
-      thirdParty5h,
-      thirdPartyWeekly,
-      treeNetDelta5hPct,
-      burnRate5hPctPerMin
-    },
-    cascadeBaselines
-  };
-}
-function evaluateSmartGovernanceBanner(treeNodes, gemini5hRemainingPct, burnRatePctPerMin, config) {
-  const heavyConcurrentCount = treeNodes.filter(
-    (node) => node.phase !== "IDLE" && node.phase !== "ERROR_OR_QUOTA" && node.servedModel.tier === "apex"
-  ).length;
-  const alertCount = config.smartThresholds.heavyConcurrentAlertCount;
-  const quotaThreshold = config.smartThresholds.heavyQuotaThresholdPct;
-  const effectiveRemaining = gemini5hRemainingPct ?? 100;
-  const active = heavyConcurrentCount >= alertCount && effectiveRemaining < quotaThreshold;
-  if (!active) {
-    return {
-      active: false,
-      heavyConcurrentCount,
-      gemini5hRemainingPct,
-      estimatedBurnPctPerMin: burnRatePctPerMin,
-      message: null
-    };
-  }
-  const burnSuffix = burnRatePctPerMin !== null && Number.isFinite(burnRatePctPerMin) && burnRatePctPerMin > 0 ? `\u9884\u8BA1\u6BCF\u5206\u949F\u6D88\u8017 ~${burnRatePctPerMin.toFixed(1)}% 5h \u914D\u989D` : "\u5EFA\u8BAE\u5C06\u63A2\u7D22\u7C7B\u5B50\u4EE3\u7406\u5207\u6362\u4E3A Argon / Flash";
-  return {
-    active: true,
-    heavyConcurrentCount,
-    gemini5hRemainingPct,
-    estimatedBurnPctPerMin: burnRatePctPerMin,
-    message: `\u{1F4A1} \u5F53\u524D\u6709 ${heavyConcurrentCount} \u4E2A\u8282\u70B9\u5E76\u53D1\u8FD0\u884C\u4E8E Apex \u65D7\u8230\u6A21\u578B\uFF085h \u4F59\u91CF ${effectiveRemaining.toFixed(1)}%\uFF09\uFF0C${burnSuffix}`
-  };
-}
-
-// src/core/topology-builder.ts
-import { existsSync as existsSync2, readdirSync, readFileSync as readFileSync2 } from "node:fs";
-import path2 from "node:path";
 
 // src/core/state-machine.ts
 var ERROR_REASON_RE = /RESOURCE_EXHAUSTED|429|QUOTA|ERROR|FAILED/i;
@@ -2027,6 +1767,933 @@ function buildTopologyGraph(input) {
   };
 }
 
+// src/core/fleet-builder.ts
+var ROLLING_5H_WINDOW_MS = 5 * 60 * 60 * 1e3;
+var TIER_WEIGHT2 = {
+  alert: 0,
+  fast: 1,
+  orchestrator: 2,
+  workhorse: 3,
+  apex: 4
+};
+var EFFORT_SHORT_MAP = {
+  xhigh: "(XH)",
+  high: "(H)",
+  medium: "(M)",
+  med: "(M)",
+  low: "(L)"
+};
+function compareStringAsc(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function round8(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.round(value * 1e8) / 1e8;
+}
+function parseValidMs2(iso) {
+  if (!iso || typeof iso !== "string") {
+    return null;
+  }
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+function isNodeRunning(node) {
+  return node.status === "CASCADE_RUN_STATUS_RUNNING" || node.phase !== "IDLE" && node.phase !== "ERROR_OR_QUOTA";
+}
+function isRootNode(node) {
+  return node.kind === "root" || node.parentCascadeId === null;
+}
+function compactModelLabel(servedModel) {
+  let label = (servedModel.displayName || servedModel.responseModel || servedModel.modelEnum || "Unknown").trim();
+  if (!label) {
+    return "Unknown";
+  }
+  const pendingStripped = label.replace(/\s*\(pending\)\s*$/i, "").trim();
+  if (pendingStripped) {
+    label = pendingStripped;
+  }
+  let effortSuffix = "";
+  const effortMatch = /\s*\((xhigh|high|medium|med|low)\)\s*$/i.exec(label);
+  if (effortMatch?.[1]) {
+    effortSuffix = EFFORT_SHORT_MAP[effortMatch[1].toLowerCase()] ?? "";
+    label = label.slice(0, effortMatch.index).trim();
+  }
+  label = label.replace(/^(?:Gemini|Claude)\s+(?:\d+(?:\.\d+)*\s+)?/i, "").replace(/^OpenAI\s+/i, "").replace(/^(Opus|Sonnet|Haiku|Carbon|Argon|Hydrogen|Flash(?:\s+Lite)?)\s+\d+(?:\.\d+)*$/i, "$1").trim();
+  if (!label) {
+    label = "Unknown";
+  }
+  return `${label}${effortSuffix}`;
+}
+function normalizeUriKey(uri) {
+  return uri.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+function collectWorkspacesFromNodes(rootCascadeId, treeNodes, trajectories) {
+  const rootWorkspaces = trajectories[rootCascadeId]?.workspaces;
+  if (Array.isArray(rootWorkspaces) && rootWorkspaces.length > 0) {
+    return rootWorkspaces;
+  }
+  for (const node of treeNodes) {
+    const childWorkspaces = trajectories[node.cascadeId]?.workspaces;
+    if (Array.isArray(childWorkspaces) && childWorkspaces.length > 0) {
+      return childWorkspaces;
+    }
+  }
+  return [];
+}
+function resolveProjectIdentity(rootCascadeId, treeNodes, trajectories) {
+  const workspaces = collectWorkspacesFromNodes(rootCascadeId, treeNodes, trajectories);
+  const rawUris = [];
+  const repoNames = [];
+  for (const ws of workspaces) {
+    const uri = ws.workspaceFolderAbsoluteUri?.trim() || ws.gitRootAbsoluteUri?.trim() || "";
+    if (uri && !rawUris.includes(uri)) {
+      rawUris.push(uri);
+    }
+    const repoName = ws.repository?.computedName?.trim() || "";
+    if (repoName && !repoNames.includes(repoName)) {
+      repoNames.push(repoName);
+    }
+  }
+  if (rawUris.length > 0) {
+    const normalizedKeys = Array.from(new Set(rawUris.map(normalizeUriKey))).sort(compareStringAsc);
+    const projectKey = normalizedKeys.join("|");
+    const firstBase = extractWorkspaceBasename(rawUris[0]);
+    const projectName = firstBase || repoNames[0] || "Workspace Unavailable";
+    return {
+      projectKey,
+      projectName,
+      workspaceUris: rawUris
+    };
+  }
+  if (repoNames.length > 0) {
+    return {
+      projectKey: `repo:${repoNames[0].toLowerCase()}`,
+      projectName: repoNames[0],
+      workspaceUris: []
+    };
+  }
+  return {
+    projectKey: "__global__",
+    projectName: "Workspace Unavailable",
+    workspaceUris: []
+  };
+}
+function computeTreeDelta5hPct(treeNodes, cascadeBaselines) {
+  let hasBaseline = false;
+  let total = 0;
+  for (const node of treeNodes) {
+    const baseline = cascadeBaselines[node.cascadeId];
+    if (baseline) {
+      hasBaseline = true;
+      total += Math.max(0, baseline.delta5hPct);
+    } else if (node.deltaQuota5hPct !== null && node.deltaQuota5hPct !== void 0 && Number.isFinite(node.deltaQuota5hPct)) {
+      hasBaseline = true;
+      total += Math.max(0, node.deltaQuota5hPct);
+    }
+  }
+  const rounded = round8(Math.max(0, total));
+  return {
+    treeDeltaQuota5hPct: hasBaseline ? rounded : null,
+    positiveConsumedPct: rounded
+  };
+}
+function nodeTotalTokens(node) {
+  return Math.max(0, node.tokens.inputTokens) + Math.max(0, node.tokens.cacheReadTokens) + Math.max(0, node.tokens.outputTokens);
+}
+function selectDominantNode(treeNodes, rootCascadeId) {
+  let best = treeNodes[0];
+  for (let i = 1; i < treeNodes.length; i += 1) {
+    const candidate = treeNodes[i];
+    const bestTok = nodeTotalTokens(best);
+    const candTok = nodeTotalTokens(candidate);
+    if (candTok !== bestTok) {
+      if (candTok > bestTok) {
+        best = candidate;
+      }
+      continue;
+    }
+    const bestTierWeight = TIER_WEIGHT2[best.servedModel.tier] ?? 0;
+    const candTierWeight = TIER_WEIGHT2[candidate.servedModel.tier] ?? 0;
+    if (candTierWeight !== bestTierWeight) {
+      if (candTierWeight > bestTierWeight) {
+        best = candidate;
+      }
+      continue;
+    }
+    const bestIsRoot = best.cascadeId === rootCascadeId ? 1 : 0;
+    const candIsRoot = candidate.cascadeId === rootCascadeId ? 1 : 0;
+    if (candIsRoot !== bestIsRoot) {
+      if (candIsRoot > bestIsRoot) {
+        best = candidate;
+      }
+      continue;
+    }
+    if (compareStringAsc(candidate.cascadeId, best.cascadeId) < 0) {
+      best = candidate;
+    }
+  }
+  return best;
+}
+function buildFleetSnapshot(input) {
+  const nowMs = input.nowMs ?? Date.now();
+  const generatedAt = new Date(nowMs).toISOString();
+  const recentIdleWindowMs = input.recentIdleWindowMs ?? ROLLING_5H_WINDOW_MS;
+  const maxIdleTreesPerProject = input.maxIdleTreesPerProject ?? 5;
+  const allNodes = Object.values(input.nodesByCascadeId);
+  if (allNodes.length === 0) {
+    return {
+      generatedAt,
+      hostConnected: input.hostConnected,
+      activeHeadline: {
+        runningRoots: 0,
+        runningSubagents: 0,
+        totalRunningNodes: 0,
+        modelHistogram: []
+      },
+      projects: [],
+      topQuotaBurners: [],
+      quota: input.quota
+    };
+  }
+  let runningRoots = 0;
+  let runningSubagents = 0;
+  const histogramMap = /* @__PURE__ */ new Map();
+  for (const node of allNodes) {
+    if (!isNodeRunning(node)) {
+      continue;
+    }
+    if (isRootNode(node)) {
+      runningRoots += 1;
+    } else {
+      runningSubagents += 1;
+    }
+    const label = compactModelLabel(node.servedModel);
+    const key = `${label}\0${node.servedModel.tier}`;
+    const prev = histogramMap.get(key);
+    if (prev) {
+      prev.count += 1;
+    } else {
+      histogramMap.set(key, { label, tier: node.servedModel.tier, count: 1 });
+    }
+  }
+  const modelHistogram = Array.from(histogramMap.values()).sort((a, b) => {
+    if (b.count !== a.count) {
+      return b.count - a.count;
+    }
+    const labelCmp = compareStringAsc(a.label, b.label);
+    if (labelCmp !== 0) {
+      return labelCmp;
+    }
+    return compareStringAsc(a.tier, b.tier);
+  });
+  const nodesByRoot = /* @__PURE__ */ new Map();
+  for (const node of allNodes) {
+    const rootId = node.rootCascadeId || node.cascadeId;
+    const list = nodesByRoot.get(rootId);
+    if (list) {
+      list.push(node);
+    } else {
+      nodesByRoot.set(rootId, [node]);
+    }
+  }
+  const treeRecords = [];
+  for (const [rootCascadeId, rawTreeNodes] of nodesByRoot.entries()) {
+    const rootNode = rawTreeNodes.find((n) => n.cascadeId === rootCascadeId) ?? rawTreeNodes.find((n) => n.parentCascadeId === null) ?? rawTreeNodes[0];
+    const activeNodes = rawTreeNodes.filter(isNodeRunning);
+    const activeNodeCount = activeNodes.length;
+    const totalNodeCount = rawTreeNodes.length;
+    let elapsedMs = 0;
+    if (activeNodeCount > 0) {
+      let earliestMs = null;
+      for (const active of activeNodes) {
+        const tsMs = parseValidMs2(active.phaseStartedAt) ?? parseValidMs2(active.lastModifiedTime);
+        if (tsMs !== null && (earliestMs === null || tsMs < earliestMs)) {
+          earliestMs = tsMs;
+        }
+      }
+      elapsedMs = earliestMs !== null ? Math.max(0, nowMs - earliestMs) : Math.max(0, ...activeNodes.map((n) => n.phaseElapsedMs));
+    }
+    const mixSourceNodes = activeNodeCount > 0 ? activeNodes : rawTreeNodes;
+    const mixCounts = /* @__PURE__ */ new Map();
+    for (const n of mixSourceNodes) {
+      const label = compactModelLabel(n.servedModel);
+      mixCounts.set(label, (mixCounts.get(label) ?? 0) + 1);
+    }
+    const modelMix = {};
+    for (const label of Array.from(mixCounts.keys()).sort(compareStringAsc)) {
+      modelMix[label] = mixCounts.get(label) ?? 0;
+    }
+    const sortedNodes = [...rawTreeNodes].sort((a, b) => {
+      const activeDiff = (isNodeRunning(b) ? 1 : 0) - (isNodeRunning(a) ? 1 : 0);
+      if (activeDiff !== 0) {
+        return activeDiff;
+      }
+      if (a.depth !== b.depth) {
+        return a.depth - b.depth;
+      }
+      const titleCmp = compareStringAsc(a.title.toLowerCase(), b.title.toLowerCase());
+      if (titleCmp !== 0) {
+        return titleCmp;
+      }
+      return compareStringAsc(a.cascadeId, b.cascadeId);
+    });
+    const { treeDeltaQuota5hPct, positiveConsumedPct } = computeTreeDelta5hPct(
+      rawTreeNodes,
+      input.cascadeBaselines
+    );
+    let maxLastModifiedMs = 0;
+    let maxLastModifiedIso = rootNode.lastModifiedTime || generatedAt;
+    let totalTokens = 0;
+    for (const n of rawTreeNodes) {
+      totalTokens += nodeTotalTokens(n);
+      const ms = parseValidMs2(n.lastModifiedTime);
+      if (ms !== null && ms > maxLastModifiedMs) {
+        maxLastModifiedMs = ms;
+        maxLastModifiedIso = n.lastModifiedTime;
+      }
+    }
+    const trajModMs = parseValidMs2(input.trajectories[rootCascadeId]?.lastModifiedTime);
+    if (trajModMs !== null && trajModMs > maxLastModifiedMs) {
+      maxLastModifiedMs = trajModMs;
+      maxLastModifiedIso = input.trajectories[rootCascadeId]?.lastModifiedTime ?? maxLastModifiedIso;
+    }
+    const dominantNode = selectDominantNode(rawTreeNodes, rootCascadeId);
+    const projectIdentity = resolveProjectIdentity(
+      rootCascadeId,
+      rawTreeNodes,
+      input.trajectories
+    );
+    treeRecords.push({
+      summary: {
+        rootCascadeId,
+        rootTitle: rootNode.title,
+        rootPhase: rootNode.phase,
+        activeNodeCount,
+        totalNodeCount,
+        elapsedMs,
+        modelMix,
+        nodes: sortedNodes,
+        treeDeltaQuota5hPct
+      },
+      projectIdentity,
+      maxLastModifiedMs,
+      maxLastModifiedIso,
+      positiveConsumed5hPct: positiveConsumedPct,
+      totalTokens,
+      dominantModel: compactModelLabel(dominantNode.servedModel),
+      dominantTier: dominantNode.servedModel.tier
+    });
+  }
+  const idleCutoffMs = nowMs - recentIdleWindowMs;
+  const projectMap = /* @__PURE__ */ new Map();
+  for (const rec of treeRecords) {
+    const isTreeActive = rec.summary.activeNodeCount > 0;
+    if (!isTreeActive && rec.maxLastModifiedMs < idleCutoffMs) {
+      continue;
+    }
+    const { projectKey, projectName, workspaceUris } = rec.projectIdentity;
+    let bucket = projectMap.get(projectKey);
+    if (!bucket) {
+      bucket = {
+        projectKey,
+        projectName,
+        workspaceUris: /* @__PURE__ */ new Set(),
+        activeTrees: [],
+        idleTrees: [],
+        maxLastModifiedMs: 0
+      };
+      projectMap.set(projectKey, bucket);
+    }
+    for (const uri of workspaceUris) {
+      bucket.workspaceUris.add(uri);
+    }
+    if (rec.maxLastModifiedMs > bucket.maxLastModifiedMs) {
+      bucket.maxLastModifiedMs = rec.maxLastModifiedMs;
+    }
+    if (isTreeActive) {
+      bucket.activeTrees.push(rec);
+    } else {
+      bucket.idleTrees.push(rec);
+    }
+  }
+  const sortTreesDesc = (a, b) => {
+    const activeDiff = (b.summary.activeNodeCount > 0 ? 1 : 0) - (a.summary.activeNodeCount > 0 ? 1 : 0);
+    if (activeDiff !== 0) {
+      return activeDiff;
+    }
+    if (b.summary.activeNodeCount !== a.summary.activeNodeCount) {
+      return b.summary.activeNodeCount - a.summary.activeNodeCount;
+    }
+    if (b.maxLastModifiedMs !== a.maxLastModifiedMs) {
+      return b.maxLastModifiedMs - a.maxLastModifiedMs;
+    }
+    const titleCmp = compareStringAsc(
+      a.summary.rootTitle.toLowerCase(),
+      b.summary.rootTitle.toLowerCase()
+    );
+    if (titleCmp !== 0) {
+      return titleCmp;
+    }
+    return compareStringAsc(a.summary.rootCascadeId, b.summary.rootCascadeId);
+  };
+  const projectsWithMeta = [];
+  for (const bucket of projectMap.values()) {
+    bucket.activeTrees.sort(sortTreesDesc);
+    bucket.idleTrees.sort(sortTreesDesc);
+    const cappedIdle = maxIdleTreesPerProject > 0 ? bucket.idleTrees.slice(0, maxIdleTreesPerProject) : [];
+    const combinedTrees = [...bucket.activeTrees, ...cappedIdle];
+    if (combinedTrees.length === 0) {
+      continue;
+    }
+    const runningCount = combinedTrees.reduce(
+      (sum, t) => sum + t.summary.activeNodeCount,
+      0
+    );
+    projectsWithMeta.push({
+      group: {
+        projectKey: bucket.projectKey,
+        projectName: bucket.projectName,
+        workspaceUris: Array.from(bucket.workspaceUris),
+        runningCount,
+        trees: combinedTrees.map((t) => t.summary)
+      },
+      maxLastModifiedMs: bucket.maxLastModifiedMs
+    });
+  }
+  projectsWithMeta.sort((a, b) => {
+    const activeDiff = (b.group.runningCount > 0 ? 1 : 0) - (a.group.runningCount > 0 ? 1 : 0);
+    if (activeDiff !== 0) {
+      return activeDiff;
+    }
+    if (b.group.runningCount !== a.group.runningCount) {
+      return b.group.runningCount - a.group.runningCount;
+    }
+    if (b.maxLastModifiedMs !== a.maxLastModifiedMs) {
+      return b.maxLastModifiedMs - a.maxLastModifiedMs;
+    }
+    const nameCmp = compareStringAsc(
+      a.group.projectName.toLowerCase(),
+      b.group.projectName.toLowerCase()
+    );
+    if (nameCmp !== 0) {
+      return nameCmp;
+    }
+    return compareStringAsc(a.group.projectKey, b.group.projectKey);
+  });
+  const rollingCutoffMs = nowMs - ROLLING_5H_WINDOW_MS;
+  const burnerCandidates = treeRecords.filter((rec) => {
+    const in5hWindow = rec.summary.activeNodeCount > 0 || rec.maxLastModifiedMs >= rollingCutoffMs;
+    const hasConsumption = rec.positiveConsumed5hPct > 0 || rec.totalTokens > 0;
+    return (in5hWindow || rec.positiveConsumed5hPct > 0) && hasConsumption;
+  });
+  burnerCandidates.sort((a, b) => {
+    if (b.positiveConsumed5hPct !== a.positiveConsumed5hPct) {
+      return b.positiveConsumed5hPct - a.positiveConsumed5hPct;
+    }
+    if (b.totalTokens !== a.totalTokens) {
+      return b.totalTokens - a.totalTokens;
+    }
+    if (b.maxLastModifiedMs !== a.maxLastModifiedMs) {
+      return b.maxLastModifiedMs - a.maxLastModifiedMs;
+    }
+    return compareStringAsc(a.summary.rootCascadeId, b.summary.rootCascadeId);
+  });
+  const topQuotaBurners = burnerCandidates.slice(0, 5).map((rec, idx) => ({
+    rank: idx + 1,
+    rootCascadeId: rec.summary.rootCascadeId,
+    title: rec.summary.rootTitle,
+    projectName: rec.projectIdentity.projectName,
+    dominantModel: rec.dominantModel,
+    dominantTier: rec.dominantTier,
+    consumed5hPct: rec.positiveConsumed5hPct,
+    delta5hPct: rec.positiveConsumed5hPct,
+    totalTokens: rec.totalTokens,
+    lastActiveAt: rec.maxLastModifiedIso,
+    isRunning: rec.summary.activeNodeCount > 0
+  }));
+  return {
+    generatedAt,
+    hostConnected: input.hostConnected,
+    activeHeadline: {
+      runningRoots,
+      runningSubagents,
+      totalRunningNodes: runningRoots + runningSubagents,
+      modelHistogram
+    },
+    projects: projectsWithMeta.map((p) => p.group),
+    topQuotaBurners,
+    quota: input.quota
+  };
+}
+
+// src/core/quota-calculator.ts
+var FIVE_MIN_MS = 5 * 60 * 1e3;
+var RESET_HYSTERESIS = 5e-3;
+function round82(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.round(value * 1e8) / 1e8;
+}
+function formatResetCountdown(resetTime, nowMs = Date.now()) {
+  if (!resetTime || typeof resetTime !== "string") {
+    return { resetInSeconds: null, resetInLabel: "\u2014" };
+  }
+  const targetMs = Date.parse(resetTime);
+  if (!Number.isFinite(targetMs)) {
+    return { resetInSeconds: null, resetInLabel: "\u2014" };
+  }
+  const diffSec = Math.max(0, Math.floor((targetMs - nowMs) / 1e3));
+  if (diffSec <= 0) {
+    return { resetInSeconds: 0, resetInLabel: "0m" };
+  }
+  if (diffSec < 3600) {
+    return { resetInSeconds: diffSec, resetInLabel: `${Math.ceil(diffSec / 60)}m` };
+  }
+  if (diffSec < 86400) {
+    const hours2 = Math.floor(diffSec / 3600);
+    const mins = Math.floor(diffSec % 3600 / 60);
+    return { resetInSeconds: diffSec, resetInLabel: `${hours2}h ${mins}m` };
+  }
+  const days = Math.floor(diffSec / 86400);
+  const hours = Math.floor(diffSec % 86400 / 3600);
+  return { resetInSeconds: diffSec, resetInLabel: `${days}d ${hours}h` };
+}
+function computeBurnRate5hPctPerMin(samples, nowMs) {
+  if (!Array.isArray(samples) || samples.length < 2) {
+    return null;
+  }
+  const valid = samples.filter(
+    (s) => Number.isFinite(s.tsMs) && Number.isFinite(s.remainingFraction) && s.remainingFraction >= 0 && s.remainingFraction <= 1
+  ).sort((a, b) => a.tsMs - b.tsMs);
+  if (valid.length < 2) {
+    return null;
+  }
+  const refMs = nowMs !== void 0 && Number.isFinite(nowMs) ? nowMs : valid[valid.length - 1].tsMs;
+  const windowSamples = valid.filter((s) => s.tsMs >= refMs - FIVE_MIN_MS && s.tsMs <= refMs);
+  if (windowSamples.length < 2) {
+    return null;
+  }
+  const elapsedMs = windowSamples[windowSamples.length - 1].tsMs - windowSamples[0].tsMs;
+  if (elapsedMs < 1e4) {
+    return null;
+  }
+  let positiveDropsPct = 0;
+  for (let i = 1; i < windowSamples.length; i += 1) {
+    const drop = windowSamples[i - 1].remainingFraction - windowSamples[i].remainingFraction;
+    if (drop > 0) {
+      positiveDropsPct += drop * 100;
+    }
+  }
+  if (positiveDropsPct <= 0) {
+    return null;
+  }
+  const elapsedMinutes = elapsedMs / 6e4;
+  return elapsedMinutes > 0 ? round82(positiveDropsPct / elapsedMinutes) : null;
+}
+function updateCascadeQuotaBaselines(input) {
+  const nextBaselines = {};
+  for (const [cid, entry] of Object.entries(input.prevBaselines)) {
+    nextBaselines[cid] = { ...entry };
+  }
+  const dedupedSignals = /* @__PURE__ */ new Map();
+  for (const signal of input.activeCascades) {
+    if (!signal.cascadeId) continue;
+    const prev = dedupedSignals.get(signal.cascadeId);
+    if (!prev) {
+      dedupedSignals.set(signal.cascadeId, { ...signal });
+    } else {
+      dedupedSignals.set(signal.cascadeId, {
+        cascadeId: signal.cascadeId,
+        isRunning: prev.isRunning || signal.isRunning,
+        stepCountIncremented: Boolean(prev.stepCountIncremented || signal.stepCountIncremented),
+        tokenDelta: Math.max(0, prev.tokenDelta ?? 0) + Math.max(0, signal.tokenDelta ?? 0)
+      });
+    }
+  }
+  const ensureBaseline = (cid) => {
+    const existing = nextBaselines[cid];
+    if (existing) {
+      return existing;
+    }
+    const created = {
+      firstSeenAt: input.nowIso,
+      baseline5hFraction: input.currGlobal5hFraction,
+      last5hFraction: input.currGlobal5hFraction,
+      delta5hPct: 0
+    };
+    nextBaselines[cid] = created;
+    return created;
+  };
+  for (const cid of dedupedSignals.keys()) {
+    ensureBaseline(cid);
+  }
+  for (const cid of input.allKnownCascadeIds ?? []) {
+    if (cid) ensureBaseline(cid);
+  }
+  const prevGlobal = input.prevGlobal5hFraction;
+  const currGlobal = input.currGlobal5hFraction;
+  if (currGlobal === null || !Number.isFinite(currGlobal)) {
+    return nextBaselines;
+  }
+  if (prevGlobal === null || !Number.isFinite(prevGlobal)) {
+    for (const entry of Object.values(nextBaselines)) {
+      if (entry.baseline5hFraction === null) {
+        entry.baseline5hFraction = currGlobal;
+      }
+      entry.last5hFraction = currGlobal;
+    }
+    return nextBaselines;
+  }
+  if (currGlobal > prevGlobal + RESET_HYSTERESIS) {
+    for (const entry of Object.values(nextBaselines)) {
+      entry.baseline5hFraction = currGlobal;
+      entry.last5hFraction = currGlobal;
+      entry.delta5hPct = Math.max(0, entry.delta5hPct);
+    }
+    return nextBaselines;
+  }
+  if (currGlobal <= prevGlobal) {
+    const tickDropPct = round82(Math.max(0, (prevGlobal - currGlobal) * 100));
+    if (tickDropPct > 0) {
+      const attributed = Array.from(dedupedSignals.values()).filter(
+        (c) => c.isRunning || c.stepCountIncremented || (c.tokenDelta ?? 0) > 0
+      );
+      if (attributed.length > 0) {
+        const totalTokenDelta = attributed.reduce(
+          (sum, c) => sum + Math.max(0, c.tokenDelta ?? 0),
+          0
+        );
+        for (const sig of attributed) {
+          const entry = ensureBaseline(sig.cascadeId);
+          const share = totalTokenDelta > 0 ? tickDropPct * (Math.max(0, sig.tokenDelta ?? 0) / totalTokenDelta) : tickDropPct / attributed.length;
+          entry.delta5hPct = round82(Math.max(0, entry.delta5hPct + share));
+        }
+      }
+    }
+  }
+  for (const entry of Object.values(nextBaselines)) {
+    entry.last5hFraction = currGlobal;
+  }
+  return nextBaselines;
+}
+function toBucketView(rawBucket, groupId, nowMs) {
+  const bucketId = (rawBucket.bucketId ?? "").trim();
+  const displayName = (rawBucket.displayName ?? bucketId) || "Quota";
+  const rawFraction = typeof rawBucket.remainingFraction === "number" && Number.isFinite(rawBucket.remainingFraction) ? rawBucket.remainingFraction : 0;
+  const remainingFraction = Math.min(1, Math.max(0, rawFraction));
+  const remainingPct = remainingFraction * 100;
+  const resetTime = rawBucket.resetTime ?? null;
+  const { resetInSeconds, resetInLabel } = formatResetCountdown(resetTime, nowMs);
+  const inferredWindow = rawBucket.window?.trim() || (/week/i.test(`${bucketId} ${displayName}`) ? "weekly" : "5h");
+  return {
+    bucketId,
+    ...groupId ? { groupId } : {},
+    displayName,
+    window: inferredWindow,
+    remainingFraction,
+    remainingPct,
+    resetTime,
+    resetInSeconds,
+    resetInLabel,
+    isLowAlert: remainingPct < 15
+  };
+}
+function normalizeQuotaSummary(raw, prevCache, activeTreeNodeIds = [], fetchedAt = (/* @__PURE__ */ new Date()).toISOString(), burnSamples = [], activeCascades) {
+  const parsedMs = Date.parse(fetchedAt);
+  const nowMs = Number.isFinite(parsedMs) ? parsedMs : Date.now();
+  const groups = raw?.response?.groups ?? raw?.groups ?? [];
+  const buckets = [];
+  for (const group of groups) {
+    for (const rawBucket of group.buckets ?? []) {
+      buckets.push(toBucketView(rawBucket, group.groupId, nowMs));
+    }
+  }
+  const findSlot = (exactId, fallbackRe) => buckets.find((b) => b.bucketId === exactId) ?? buckets.find((b) => fallbackRe.test(`${b.bucketId} ${b.displayName}`)) ?? null;
+  const gemini5h = findSlot("gemini-5h", /gemini.*5h/i);
+  const geminiWeekly = findSlot("gemini-weekly", /gemini.*week/i);
+  const thirdParty5h = findSlot("3p-5h", /(?:3p|third[-_ ]?party|claude).*5h/i);
+  const thirdPartyWeekly = findSlot("3p-weekly", /(?:3p|third[-_ ]?party|claude).*week/i);
+  const uniqueTreeIds = Array.from(new Set(activeTreeNodeIds.filter(Boolean)));
+  const effectiveSignals = activeCascades !== void 0 ? activeCascades : uniqueTreeIds.map((cascadeId) => ({
+    cascadeId,
+    isRunning: true
+  }));
+  const prevGlobal5hFraction = prevCache?.quota?.gemini5h?.remainingFraction ?? null;
+  const currGlobal5hFraction = gemini5h?.remainingFraction ?? null;
+  const cascadeBaselines = updateCascadeQuotaBaselines({
+    prevBaselines: prevCache?.cascadeBaselines ?? {},
+    prevGlobal5hFraction,
+    currGlobal5hFraction,
+    activeCascades: effectiveSignals,
+    allKnownCascadeIds: uniqueTreeIds,
+    nowIso: fetchedAt
+  });
+  let treeNetDelta5hPct = null;
+  if (uniqueTreeIds.length > 0) {
+    let hasAnyBaseline = false;
+    let totalDelta = 0;
+    for (const cid of uniqueTreeIds) {
+      const entry = cascadeBaselines[cid];
+      if (entry) {
+        hasAnyBaseline = true;
+        totalDelta += Math.max(0, entry.delta5hPct);
+      }
+    }
+    if (hasAnyBaseline) {
+      treeNetDelta5hPct = round82(totalDelta);
+    }
+  }
+  const burnRate5hPctPerMin = computeBurnRate5hPctPerMin(burnSamples, nowMs);
+  return {
+    quota: {
+      fetchedAt,
+      buckets,
+      gemini5h,
+      geminiWeekly,
+      thirdParty5h,
+      thirdPartyWeekly,
+      treeNetDelta5hPct,
+      burnRate5hPctPerMin
+    },
+    cascadeBaselines
+  };
+}
+function evaluateSmartGovernanceBanner(treeNodes, gemini5hRemainingPct, burnRatePctPerMin, config) {
+  const heavyConcurrentCount = treeNodes.filter(
+    (node) => node.phase !== "IDLE" && node.phase !== "ERROR_OR_QUOTA" && node.servedModel.tier === "apex"
+  ).length;
+  const alertCount = config.smartThresholds.heavyConcurrentAlertCount;
+  const quotaThreshold = config.smartThresholds.heavyQuotaThresholdPct;
+  const effectiveRemaining = gemini5hRemainingPct ?? 100;
+  const active = heavyConcurrentCount >= alertCount && effectiveRemaining < quotaThreshold;
+  if (!active) {
+    return {
+      active: false,
+      heavyConcurrentCount,
+      gemini5hRemainingPct,
+      estimatedBurnPctPerMin: burnRatePctPerMin,
+      message: null
+    };
+  }
+  const burnSuffix = burnRatePctPerMin !== null && Number.isFinite(burnRatePctPerMin) && burnRatePctPerMin > 0 ? `\u9884\u8BA1\u6BCF\u5206\u949F\u6D88\u8017 ~${burnRatePctPerMin.toFixed(1)}% 5h \u914D\u989D` : "\u5EFA\u8BAE\u5C06\u63A2\u7D22\u7C7B\u5B50\u4EE3\u7406\u5207\u6362\u4E3A Argon / Flash";
+  return {
+    active: true,
+    heavyConcurrentCount,
+    gemini5hRemainingPct,
+    estimatedBurnPctPerMin: burnRatePctPerMin,
+    message: `\u{1F4A1} \u5F53\u524D\u6709 ${heavyConcurrentCount} \u4E2A\u8282\u70B9\u5E76\u53D1\u8FD0\u884C\u4E8E Apex \u65D7\u8230\u6A21\u578B\uFF085h \u4F59\u91CF ${effectiveRemaining.toFixed(1)}%\uFF09\uFF0C${burnSuffix}`
+  };
+}
+
+// src/core/timeline-builder.ts
+function parseTimestamp(raw) {
+  if (typeof raw === "number") {
+    if (!Number.isFinite(raw) || raw <= 0) {
+      return { ms: null, iso: null };
+    }
+    const ms = raw < 1e11 ? raw * 1e3 : raw;
+    return { ms, iso: new Date(ms).toISOString() };
+  }
+  if (typeof raw !== "string") {
+    return { ms: null, iso: null };
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { ms: null, iso: null };
+  }
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    const num = Number(trimmed);
+    if (Number.isFinite(num) && num > 0) {
+      const ms = num < 1e11 ? num * 1e3 : num;
+      return { ms, iso: new Date(ms).toISOString() };
+    }
+    return { ms: null, iso: null };
+  }
+  const parsedMs = Date.parse(trimmed);
+  if (!Number.isFinite(parsedMs)) {
+    return { ms: null, iso: null };
+  }
+  return { ms: parsedMs, iso: trimmed };
+}
+function parseValidMs3(iso) {
+  if (!iso || typeof iso !== "string") {
+    return null;
+  }
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+function compareStringAsc2(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function compareSortableTurnsAsc(a, b) {
+  if (a.sortTimeMs !== b.sortTimeMs) {
+    return a.sortTimeMs - b.sortTimeMs;
+  }
+  if (a.depth !== b.depth) {
+    return a.depth - b.depth;
+  }
+  if (a.spawnStepIndex !== b.spawnStepIndex) {
+    return a.spawnStepIndex - b.spawnStepIndex;
+  }
+  const roleCmp = compareStringAsc2(a.roleKey, b.roleKey);
+  if (roleCmp !== 0) {
+    return roleCmp;
+  }
+  const cidCmp = compareStringAsc2(a.cascadeId, b.cascadeId);
+  if (cidCmp !== 0) {
+    return cidCmp;
+  }
+  if (a.firstStepIndex !== b.firstStepIndex) {
+    return a.firstStepIndex - b.firstStepIndex;
+  }
+  if (a.minStepIndex !== b.minStepIndex) {
+    return a.minStepIndex - b.minStepIndex;
+  }
+  return a.entryIndex - b.entryIndex;
+}
+function buildTimelineTurns(input) {
+  const activeCid = input.activeConversationId?.trim() ?? "";
+  if (!activeCid) {
+    return {
+      rootCascadeId: null,
+      scope: input.scope,
+      turns: []
+    };
+  }
+  const activeNode = input.nodesByCascadeId[activeCid];
+  const rootCascadeId = activeNode?.rootCascadeId ?? activeCid;
+  let candidateIds;
+  if (input.scope === "conversation") {
+    candidateIds = [activeCid];
+  } else {
+    const treeIds = Object.values(input.nodesByCascadeId).filter((node) => node.rootCascadeId === rootCascadeId).map((node) => node.cascadeId);
+    if (!treeIds.includes(activeCid)) {
+      treeIds.push(activeCid);
+    }
+    candidateIds = Array.from(new Set(treeIds));
+  }
+  const records = [];
+  for (const cascadeId of candidateIds) {
+    const entries = input.generatorMetadataByCascade[cascadeId];
+    if (!Array.isArray(entries) || entries.length === 0) {
+      continue;
+    }
+    const node = input.nodesByCascadeId[cascadeId];
+    const cascadeTitle = node?.title || `Cascade ${cascadeId.slice(0, 8)}`;
+    const role = node?.role ?? null;
+    const nodeModifiedMs = parseValidMs3(node?.lastModifiedTime) ?? 0;
+    const depth = node?.depth ?? 0;
+    const spawnStepIndex = node?.spawnStepIndex ?? Number.MAX_SAFE_INTEGER;
+    const roleKey = (role || cascadeTitle || cascadeId).toLowerCase();
+    for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+      const entry = entries[entryIndex];
+      const chatModel = entry?.chatModel;
+      if (!chatModel) {
+        continue;
+      }
+      const stepIndices = Array.isArray(entry.stepIndices) ? entry.stepIndices.filter((idx) => typeof idx === "number" && Number.isFinite(idx)).map((idx) => Math.trunc(idx)) : [];
+      const firstStepIndex = stepIndices.length > 0 ? stepIndices[0] : Number.MAX_SAFE_INTEGER;
+      const minStepIndex = stepIndices.length > 0 ? Math.min(...stepIndices) : Number.MAX_SAFE_INTEGER;
+      const rawTs = chatModel.chatStartMetadata?.createdAt ?? chatModel.createdAt ?? chatModel.timestamp ?? null;
+      const parsedTs = parseTimestamp(rawTs);
+      const sortTimeMs = parsedTs.ms ?? nodeModifiedMs;
+      const reqRaw = chatModel.customMetadata?.model_enum?.trim() || (node?.requestedModel?.raw && node.requestedModel.raw !== "unknown" ? node.requestedModel.raw : null);
+      const routing = reconcileRequestedVsServed({
+        catalog: input.modelCatalog,
+        requestedModelRaw: reqRaw,
+        requestedSource: node?.requestedModel?.source,
+        latestGenMeta: entry
+      });
+      const requestedLabel = routing.requestedModel.raw !== "unknown" ? routing.requestedModel.displayName : node?.requestedModel?.displayName && node.requestedModel.displayName !== "Unknown" ? node.requestedModel.displayName : routing.requestedModel.displayName;
+      const ttftMs = parseDurationMs(chatModel.timeToFirstToken);
+      const streamingMs = parseDurationMs(chatModel.streamingDuration);
+      const totalMs = ttftMs + streamingMs;
+      const usage = chatModel.usage;
+      const inputTokens = toIntToken(usage?.inputTokens);
+      const cacheReadTokens = toIntToken(usage?.cacheReadTokens);
+      const cacheHitPct = computeCacheHitPct(inputTokens, cacheReadTokens);
+      const outputTokens = toIntToken(usage?.outputTokens);
+      const thinkingOutputTokens = toIntToken(usage?.thinkingOutputTokens);
+      const responseOutputTokens = toIntToken(usage?.responseOutputTokens) || Math.max(0, outputTokens - thinkingOutputTokens);
+      const thinkingRatioPct = outputTokens > 0 ? Math.min(100, thinkingOutputTokens / outputTokens * 100) : 0;
+      const ctxMeta = chatModel.chatStartMetadata?.contextWindowMetadata;
+      const contextUsedTokens = toIntToken(ctxMeta?.estimatedTokensUsed);
+      const contextMaxTokens = toIntToken(ctxMeta?.maxContextTokens);
+      const contextPct = contextMaxTokens > 0 ? Math.min(100, Math.max(0, contextUsedTokens / contextMaxTokens * 100)) : 0;
+      const deltaKey = stepIndices.length > 0 ? `${cascadeId}:${minStepIndex}` : `${cascadeId}:${entryIndex}`;
+      const rawTurnDelta = input.turnDeltaQuotaByKey?.[deltaKey];
+      const deltaQuota5hPct = typeof rawTurnDelta === "number" && Number.isFinite(rawTurnDelta) && rawTurnDelta >= 0 ? rawTurnDelta : null;
+      const apiProvider = typeof usage?.apiProvider === "string" && usage.apiProvider.trim() ? usage.apiProvider.trim() : null;
+      records.push({
+        cascadeId,
+        sortTimeMs,
+        depth,
+        spawnStepIndex,
+        roleKey,
+        firstStepIndex,
+        minStepIndex,
+        entryIndex,
+        turn: {
+          cascadeId,
+          cascadeTitle,
+          role,
+          stepIndices,
+          timestamp: parsedTs.iso,
+          requestedLabel,
+          servedModelDisplayName: routing.servedModel.displayName,
+          responseModel: routing.servedModel.responseModel,
+          tier: routing.servedModel.tier,
+          ttftMs,
+          streamingMs,
+          totalMs,
+          inputTokens,
+          cacheReadTokens,
+          cacheHitPct,
+          outputTokens,
+          thinkingOutputTokens,
+          responseOutputTokens,
+          thinkingRatioPct,
+          retryCount: routing.retryCount,
+          contextUsedTokens,
+          contextMaxTokens,
+          contextPct,
+          deltaQuota5hPct,
+          apiProvider
+        }
+      });
+    }
+  }
+  if (records.length === 0) {
+    return {
+      rootCascadeId,
+      scope: input.scope,
+      turns: []
+    };
+  }
+  records.sort(compareSortableTurnsAsc);
+  const prevServedKeyByCascade = /* @__PURE__ */ new Map();
+  const chronologicalTurns = records.map((rec, idx) => {
+    const servedKey = (rec.turn.responseModel || rec.turn.servedModelDisplayName || "").trim().toLowerCase();
+    const hadPrev = prevServedKeyByCascade.has(rec.cascadeId);
+    const prevKey = prevServedKeyByCascade.get(rec.cascadeId);
+    const routingChangedFromPrevTurn = hadPrev && prevKey !== servedKey;
+    prevServedKeyByCascade.set(rec.cascadeId, servedKey);
+    return {
+      turnIndex: idx + 1,
+      ...rec.turn,
+      routingChangedFromPrevTurn
+    };
+  });
+  return {
+    rootCascadeId,
+    scope: input.scope,
+    turns: chronologicalTurns.reverse()
+  };
+}
+
 // src/rpc/ls-client.ts
 var READONLY_LS_METHODS = /* @__PURE__ */ new Set([
   "GetCascadeModelConfigData",
@@ -2193,6 +2860,44 @@ var HOOK_EVENT_RETENTION_MS = 12e4;
 var BURN_SAMPLE_RETENTION_MS = 10 * 60 * 1e3;
 var MAX_HOOKS_PER_CASCADE = 32;
 var FS_WATCH_DEBOUNCE_MS = 50;
+var MAX_CONCURRENT_META_RPCS = 6;
+async function runWithConcurrency(items, concurrency, worker) {
+  if (items.length === 0) {
+    return;
+  }
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  let cursor = 0;
+  const runners = Array.from({ length: limit }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor;
+      cursor += 1;
+      await worker(items[idx]);
+    }
+  });
+  await Promise.all(runners);
+}
+function stripVolatileFleetFields(fleet) {
+  const { fetchedAt: _ignoredFetchedAt, ...stableQuota } = fleet.quota;
+  return {
+    hostConnected: fleet.hostConnected,
+    activeHeadline: fleet.activeHeadline,
+    projects: fleet.projects.map((project) => ({
+      ...project,
+      trees: project.trees.map((tree) => {
+        const { elapsedMs: _ignoredElapsed, nodes, ...restTree } = tree;
+        return {
+          ...restTree,
+          nodes: nodes.map((node) => {
+            const { phaseElapsedMs: _ignoredNodeElapsed, ...restNode } = node;
+            return restNode;
+          })
+        };
+      })
+    })),
+    topQuotaBurners: fleet.topQuotaBurners,
+    quota: stableQuota
+  };
+}
 function createEmptyQuotaSummary(fetchedAt = (/* @__PURE__ */ new Date(0)).toISOString()) {
   return {
     fetchedAt,
@@ -2260,6 +2965,8 @@ var TelemetryEngine = class {
   lastRequestedCidAtMs = 0;
   activeConversationId = null;
   lastPersistedModelKey = "";
+  lastConfigSignature = "";
+  turnDeltaQuotaByKey = {};
   constructor(options = {}) {
     this.lsClient = options.lsClient ?? new ReadOnlyLsClient();
     this.statePaths = options.statePaths ?? getStatePaths(options.stateDir);
@@ -2268,12 +2975,38 @@ var TelemetryEngine = class {
     this.enableSqliteFallback = Boolean(options.enableSqliteFallback);
     this.initialConfigPatch = options.initialConfig;
     this.config = loadConfig(this.statePaths.stateDir);
+    this.recordCurrentConfigSignature();
     this.quotaCache = {
       schemaVersion: 1,
       updatedAt: (/* @__PURE__ */ new Date(0)).toISOString(),
       quota: createEmptyQuotaSummary(),
       cascadeBaselines: {}
     };
+  }
+  recordCurrentConfigSignature() {
+    try {
+      if (!existsSync3(this.statePaths.configPath)) {
+        this.lastConfigSignature = "";
+        return;
+      }
+      const st = statSync2(this.statePaths.configPath);
+      this.lastConfigSignature = `${st.mtimeMs}:${st.size}`;
+    } catch {
+    }
+  }
+  syncConfigIfModified() {
+    try {
+      if (!existsSync3(this.statePaths.configPath)) {
+        return;
+      }
+      const st = statSync2(this.statePaths.configPath);
+      const sig = `${st.mtimeMs}:${st.size}`;
+      if (sig !== this.lastConfigSignature) {
+        this.lastConfigSignature = sig;
+        this.config = loadConfig(this.statePaths.stateDir);
+      }
+    } catch {
+    }
   }
   async start() {
     if (this.started) {
@@ -2287,6 +3020,7 @@ var TelemetryEngine = class {
     } else {
       this.config = loadConfig(this.statePaths.stateDir);
     }
+    this.recordCurrentConfigSignature();
     this.hydratePersistedCaches();
     await this.refreshOnce();
     this.startWatcher();
@@ -2363,6 +3097,7 @@ var TelemetryEngine = class {
           this.debounceTimer = null;
           if (name === "config.json") {
             this.config = loadConfig(this.statePaths.stateDir);
+            this.recordCurrentConfigSignature();
           }
           void this.refreshOnce().catch((err) => {
             this.emitWarning(`State watcher refresh error: ${err instanceof Error ? err.message : String(err)}`);
@@ -2533,7 +3268,7 @@ var TelemetryEngine = class {
   async executeRefreshCycle(nowMs) {
     this.warnings = [];
     this.tailEventsRing(nowMs);
-    this.config = loadConfig(this.statePaths.stateDir);
+    this.syncConfigIfModified();
     let anyStepIncremented = false;
     let anyRunningToIdle = false;
     const stepIncrementedCids = /* @__PURE__ */ new Set();
@@ -2583,24 +3318,30 @@ var TelemetryEngine = class {
             delete this.stepsByCascade[cachedCid];
           }
         }
+        cidsToFetchMeta.sort((a, b) => {
+          const aRun = summaries[a]?.status === "CASCADE_RUN_STATUS_RUNNING" ? 1 : 0;
+          const bRun = summaries[b]?.status === "CASCADE_RUN_STATUS_RUNNING" ? 1 : 0;
+          if (bRun !== aRun) return bRun - aRun;
+          const aMod = Date.parse(summaries[a]?.lastModifiedTime ?? "") || 0;
+          const bMod = Date.parse(summaries[b]?.lastModifiedTime ?? "") || 0;
+          return bMod - aMod;
+        });
         let spottedUnseenModel = false;
-        await Promise.all(
-          cidsToFetchMeta.map(async (cid) => {
-            try {
-              const metaResp = await this.lsClient.getCascadeTrajectoryGeneratorMetadata(cid);
-              const entries = metaResp.generatorMetadata ?? [];
-              this.generatorMetadataByCascade[cid] = entries;
-              this.cachedGenMetaStepCount[cid] = summaries[cid]?.stepCount ?? 0;
-              if (this.hasUnseenModelEnum(entries)) {
-                spottedUnseenModel = true;
-              }
-            } catch (err) {
-              this.emitWarning(
-                `GeneratorMetadata RPC failed for ${cid}: ${err instanceof Error ? err.message : String(err)}`
-              );
+        await runWithConcurrency(cidsToFetchMeta, MAX_CONCURRENT_META_RPCS, async (cid) => {
+          try {
+            const metaResp = await this.lsClient.getCascadeTrajectoryGeneratorMetadata(cid);
+            const entries = metaResp.generatorMetadata ?? [];
+            this.generatorMetadataByCascade[cid] = entries;
+            this.cachedGenMetaStepCount[cid] = summaries[cid]?.stepCount ?? 0;
+            if (this.hasUnseenModelEnum(entries)) {
+              spottedUnseenModel = true;
             }
-          })
-        );
+          } catch (err) {
+            this.emitWarning(
+              `GeneratorMetadata RPC failed for ${cid}: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        });
         if (spottedUnseenModel && !modelConfigRefreshedThisCycle) {
           try {
             await this.refreshModelCatalog(nowMs);
@@ -2671,6 +3412,32 @@ var TelemetryEngine = class {
               this.burnSamples,
               activeSignals
             );
+            const prevBaselines = this.quotaCache.cascadeBaselines;
+            for (const [cid, nextEntry] of Object.entries(finalNormalized.cascadeBaselines)) {
+              const prevDelta = prevBaselines[cid]?.delta5hPct ?? 0;
+              const deltaGain = Math.round(Math.max(0, nextEntry.delta5hPct - prevDelta) * 1e8) / 1e8;
+              if (deltaGain <= 0) {
+                continue;
+              }
+              const entries = this.generatorMetadataByCascade[cid];
+              if (!entries || entries.length === 0) {
+                continue;
+              }
+              let latestTurnKey = null;
+              for (let i = entries.length - 1; i >= 0; i -= 1) {
+                const entry = entries[i];
+                if (!entry?.chatModel) continue;
+                const indices = Array.isArray(entry.stepIndices) ? entry.stepIndices.filter(
+                  (n) => typeof n === "number" && Number.isFinite(n)
+                ) : [];
+                latestTurnKey = indices.length > 0 ? `${cid}:${Math.min(...indices)}` : `${cid}:${i}`;
+                break;
+              }
+              if (latestTurnKey) {
+                const prevTurnDelta = this.turnDeltaQuotaByKey[latestTurnKey] ?? 0;
+                this.turnDeltaQuotaByKey[latestTurnKey] = Math.round((prevTurnDelta + deltaGain) * 1e8) / 1e8;
+              }
+            }
             this.quotaCache = {
               schemaVersion: 1,
               updatedAt: nowIso,
@@ -2714,14 +3481,14 @@ var TelemetryEngine = class {
   resolveActiveConversationId(requestedCid, nowMs) {
     const nodes = this.topology.nodesByCascadeId;
     if (requestedCid && isValidUuid(requestedCid)) {
-      if (nodes[requestedCid] || this.trajectories[requestedCid]) {
+      if (nodes[requestedCid] || this.trajectories[requestedCid] || this.generatorMetadataByCascade[requestedCid]) {
         return requestedCid;
       }
     }
-    if (this.lastRequestedCid && nowMs - this.lastRequestedCidAtMs <= RECENT_REQUEST_TTL_MS && (nodes[this.lastRequestedCid] || this.trajectories[this.lastRequestedCid])) {
+    if (this.lastRequestedCid && nowMs - this.lastRequestedCidAtMs <= RECENT_REQUEST_TTL_MS && (nodes[this.lastRequestedCid] || this.trajectories[this.lastRequestedCid] || this.generatorMetadataByCascade[this.lastRequestedCid])) {
       return this.lastRequestedCid;
     }
-    if (this.latestHookCid && (nodes[this.latestHookCid] || this.trajectories[this.latestHookCid])) {
+    if (this.latestHookCid && (nodes[this.latestHookCid] || this.trajectories[this.latestHookCid] || this.generatorMetadataByCascade[this.latestHookCid])) {
       return this.latestHookCid;
     }
     const allNodes = Object.values(nodes);
@@ -2757,29 +3524,19 @@ var TelemetryEngine = class {
       treeNetDelta5hPct
     };
   }
-  buildMinimalFleetStub(nowIso) {
-    const runningNodes = Object.values(this.topology.nodesByCascadeId).filter(
-      (n) => n.phase !== "IDLE" && n.phase !== "ERROR_OR_QUOTA"
-    );
-    const runningRoots = runningNodes.filter((n) => n.parentCascadeId === null).length;
-    const runningSubagents = Math.max(0, runningNodes.length - runningRoots);
-    const semanticPayload = {
+  buildCurrentFleetSnapshot(nowMs) {
+    const fleetCore = buildFleetSnapshot({
+      nowMs,
       hostConnected: this.hostConnected,
-      activeHeadline: {
-        runningRoots,
-        runningSubagents,
-        totalRunningNodes: runningNodes.length,
-        modelHistogram: []
-      },
-      projects: [],
-      topQuotaBurners: [],
-      quota: this.quotaCache.quota
-    };
-    const etag = computeDeterministicEtag(semanticPayload);
+      trajectories: this.trajectories,
+      nodesByCascadeId: this.topology.nodesByCascadeId,
+      quota: this.quotaCache.quota,
+      cascadeBaselines: this.quotaCache.cascadeBaselines
+    });
+    const etag = computeDeterministicEtag(stripVolatileFleetFields(fleetCore));
     return {
       etag,
-      generatedAt: nowIso,
-      ...semanticPayload
+      ...fleetCore
     };
   }
   persistLiveSnapshot(nowMs) {
@@ -2794,16 +3551,18 @@ var TelemetryEngine = class {
       hostConnected: this.hostConnected,
       activeConversationId: activeCid,
       nodesByCascadeId: this.topology.nodesByCascadeId,
-      fleet: this.buildMinimalFleetStub(nowIso),
+      fleet: this.buildCurrentFleetSnapshot(nowMs),
       quota: quotaView
     };
     writeJsonAtomic(this.statePaths.liveSnapshot, filePayload);
   }
   getConfig() {
+    this.syncConfigIfModified();
     return this.config;
   }
   updateConfig(patch) {
     this.config = updateConfigPartial(patch, this.statePaths.stateDir);
+    this.recordCurrentConfigSignature();
     const nowMs = Date.now();
     this.topology = buildTopologyGraph({
       antigravityDataDir: this.antigravityDataDir,
@@ -2867,13 +3626,22 @@ var TelemetryEngine = class {
     };
   }
   getTimelineSnapshot(conversationId, scope, clientEtag) {
+    this.syncConfigIfModified();
     const nowMs = Date.now();
-    const effectiveCid = this.resolveActiveConversationId(conversationId, nowMs);
-    const rootCascadeId = effectiveCid ? this.topology.rootByCascadeId[effectiveCid] ?? effectiveCid : null;
+    const resolvedScope = scope ?? this.config.timelineScope;
+    const effectiveCid = this.resolveActiveConversationId(conversationId ?? null, nowMs);
+    const result = buildTimelineTurns({
+      activeConversationId: effectiveCid ?? "",
+      scope: resolvedScope,
+      nodesByCascadeId: this.topology.nodesByCascadeId,
+      generatorMetadataByCascade: this.generatorMetadataByCascade,
+      modelCatalog: this.modelCatalog,
+      turnDeltaQuotaByKey: this.turnDeltaQuotaByKey
+    });
     const semanticPayload = {
-      rootCascadeId,
-      scope,
-      turns: []
+      rootCascadeId: result.rootCascadeId,
+      scope: result.scope,
+      turns: result.turns
     };
     const etag = computeDeterministicEtag(semanticPayload);
     if (isEtagMatch(clientEtag, etag)) {
@@ -2886,11 +3654,11 @@ var TelemetryEngine = class {
     };
   }
   getFleetSnapshot(clientEtag) {
-    const stub = this.buildMinimalFleetStub((/* @__PURE__ */ new Date()).toISOString());
-    if (isEtagMatch(clientEtag, stub.etag)) {
-      return makeUnchangedResponse(stub.etag);
+    const snapshot = this.buildCurrentFleetSnapshot(Date.now());
+    if (isEtagMatch(clientEtag, snapshot.etag)) {
+      return makeUnchangedResponse(snapshot.etag);
     }
-    return stub;
+    return snapshot;
   }
   getHealthInfo() {
     return {
@@ -3089,18 +3857,25 @@ async function createPulseSidecarServer(options = {}) {
   app.api(
     "/api/timeline",
     (data) => {
+      if (data.conversationId !== void 0 && typeof data.conversationId !== "string") {
+        return make400Json("Invalid conversationId UUID");
+      }
       const rawCid = typeof data.conversationId === "string" ? data.conversationId.trim() : "";
       if (rawCid && !isValidUuid(rawCid)) {
         return make400Json("Invalid conversationId UUID");
       }
-      const rawScope = typeof data.scope === "string" ? data.scope.trim() : "tree";
-      if (rawScope !== "conversation" && rawScope !== "tree") {
-        return make400Json("Invalid timeline scope: expected conversation | tree");
+      let requestedScope;
+      if (data.scope !== void 0) {
+        const rawScope = typeof data.scope === "string" ? data.scope.trim() : "";
+        if (rawScope !== "conversation" && rawScope !== "tree") {
+          return make400Json("Invalid timeline scope: expected conversation | tree");
+        }
+        requestedScope = rawScope;
       }
       const hostCid = app.config.conversationId?.trim() ?? "";
       const requestedCid = rawCid || (isValidUuid(hostCid) ? hostCid : null);
       const clientEtag = typeof data.etag === "string" ? data.etag.trim() : void 0;
-      return engine.getTimelineSnapshot(requestedCid, rawScope, clientEtag);
+      return engine.getTimelineSnapshot(requestedCid, requestedScope, clientEtag);
     },
     "GET"
   );

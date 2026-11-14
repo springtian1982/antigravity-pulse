@@ -55,8 +55,393 @@
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
-  // src/ui/hud-view.ts
+  // src/ui/fleet-view.ts
   var UUID_RE = /^[0-9a-f-]{36}$/i;
+  var VALID_TIERS = /* @__PURE__ */ new Set(["apex", "workhorse", "fast", "orchestrator", "alert"]);
+  function sanitizeTier(tier) {
+    return tier && VALID_TIERS.has(tier) ? tier : "workhorse";
+  }
+  function mapPhaseToDotAttr(phase) {
+    switch (phase) {
+      case "PRE_FLIGHT":
+        return "pre_flight";
+      case "THINKING":
+        return "thinking";
+      case "STREAMING":
+        return "streaming";
+      case "TOOL_RUNNING":
+        return "scanning";
+      case "BLOCKED_APPROVAL":
+        return "waiting";
+      case "ERROR_OR_QUOTA":
+        return "error";
+      case "IDLE":
+      default:
+        return "idle";
+    }
+  }
+  function formatPhaseCompactLabel(phase) {
+    switch (phase) {
+      case "PRE_FLIGHT":
+        return "Pre-flight";
+      case "THINKING":
+        return "Thinking";
+      case "STREAMING":
+        return "Streaming";
+      case "TOOL_RUNNING":
+        return "Tool";
+      case "BLOCKED_APPROVAL":
+        return "Approval";
+      case "ERROR_OR_QUOTA":
+        return "Error";
+      case "IDLE":
+      default:
+        return "Idle";
+    }
+  }
+  function normalizeWorkspaceUri(raw) {
+    return raw.trim().replace(/[\\/]+$/, "").toLowerCase();
+  }
+  function isProjectActiveWorkspace(projectUris, activeWorkspaceUris) {
+    if (projectUris.length === 0 || activeWorkspaceUris.length === 0) {
+      return false;
+    }
+    const activeSet = new Set(activeWorkspaceUris.map(normalizeWorkspaceUri).filter(Boolean));
+    return projectUris.some((uri) => activeSet.has(normalizeWorkspaceUri(uri)));
+  }
+  function clampProgressPct(value) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return 0;
+    }
+    return Math.max(0, Math.min(100, value));
+  }
+  function computeLiveElapsedMs(serverElapsedMs, snapshotReceivedAtMs, nowMs) {
+    const base = Number.isFinite(serverElapsedMs) && serverElapsedMs >= 0 ? serverElapsedMs : 0;
+    const delta = Math.max(0, nowMs - snapshotReceivedAtMs);
+    return base + delta;
+  }
+  function renderHeadlineHtml(snapshot) {
+    const { runningRoots, runningSubagents, totalRunningNodes, modelHistogram } = snapshot.activeHeadline;
+    const isBusy = totalRunningNodes > 0;
+    const headlineText = isBusy ? `\u{1F525} \u6D3B\u8DC3\u7B97\u529B: ${runningRoots} \u4E3B\u4F1A\u8BDD + ${runningSubagents} \u5B50\u4EE3\u7406` : "\u{1F4A4} \u5F53\u524D\u65E0\u8FD0\u884C\u4E2D\u4F1A\u8BDD";
+    const countPillTier = isBusy ? "fast" : "workhorse";
+    const histogramHtml = modelHistogram.length > 0 ? modelHistogram.map((item) => {
+      const tier = sanitizeTier(item.tier);
+      return `<span class="pulse-pill pulse-tier-${tier}" data-tier="${tier}"><span class="pulse-fleet-tier-dot" aria-hidden="true"></span><span class="pulse-btn-label">${escapeHtml(item.label)} \xD7${item.count}</span></span>`;
+    }).join("") : '<span class="pulse-empty-note">\u6682\u65E0\u6D3B\u8DC3\u6A21\u578B\u5206\u5E03</span>';
+    return `
+    <section class="pulse-hero pulse-fleet-headline" data-testid="fleet-headline">
+      <div class="pulse-fleet-headline-top">
+        <div class="pulse-fleet-headline-left">
+          <h1 class="pulse-fleet-h1">Pulse Fleet</h1>
+          <span class="pulse-phase-dot" data-phase="${isBusy ? "streaming" : "idle"}" aria-hidden="true"></span>
+          <strong class="pulse-fleet-headline-text" data-testid="fleet-headline-summary">${escapeHtml(headlineText)}</strong>
+        </div>
+        <div class="pulse-fleet-headline-right tabular-nums">
+          <span class="pulse-pill ${isBusy ? `pulse-tier-${countPillTier}` : ""}" ${isBusy ? `data-tier="${countPillTier}"` : ""} data-testid="fleet-total-active">${totalRunningNodes} active</span>
+          <span class="pulse-topbar-status" data-testid="fleet-connection-status">${snapshot.hostConnected ? "\u25CF LS Live" : "\u25CB Offline"}</span>
+        </div>
+      </div>
+      <div class="pulse-fleet-histogram" data-testid="fleet-model-histogram">
+        ${histogramHtml}
+      </div>
+    </section>
+  `;
+  }
+  function renderDrawerNodeHtml(node) {
+    const tier = sanitizeTier(node.servedModel.tier);
+    const boundedDepth = Math.min(Math.max(0, node.depth), 3);
+    const label = node.kind === "swarm_member" ? node.swarmState?.memberName || node.role || node.title : node.role ? `${node.role} \xB7 ${node.title}` : node.title;
+    const kindLabel = node.kind === "root" ? "Root" : node.kind === "swarm_member" ? "Swarm" : node.kind === "workflow" ? "Workflow" : "Subagent";
+    const canJump = UUID_RE.test(node.cascadeId);
+    return `
+    <li class="pulse-fleet-drawer-item" style="--pulse-depth: ${boundedDepth}">
+      <div class="pulse-fleet-drawer-left">
+        <span class="pulse-phase-dot" data-phase="${mapPhaseToDotAttr(node.phase)}" aria-hidden="true"></span>
+        <span class="pulse-node-kind">${escapeHtml(kindLabel)}</span>
+        <span class="pulse-fleet-drawer-title" title="${escapeHtml(label)}">${escapeHtml(label || node.cascadeId)}</span>
+      </div>
+      <div class="pulse-fleet-drawer-right">
+        <span class="pulse-pill pulse-tier-${tier}" data-tier="${tier}" title="${escapeHtml(node.servedModel.displayName)}"><span class="pulse-btn-label">${escapeHtml(node.servedModel.displayName)}</span></span>
+        ${canJump ? `<button type="button" class="pulse-btn-compact" data-action="jump-node" data-cid="${escapeHtml(node.cascadeId)}" title="Focus ${escapeHtml(label)}" aria-label="Focus ${escapeHtml(label)}">\u2197</button>` : ""}
+      </div>
+    </li>
+  `;
+  }
+  function renderTreeCardHtml(tree, isExpanded, nowMs, snapshotReceivedAtMs) {
+    const isRunning = tree.activeNodeCount > 0;
+    const rootTier = sanitizeTier(tree.nodes[0]?.servedModel.tier);
+    const canJumpRoot = UUID_RE.test(tree.rootCascadeId);
+    const elapsedHtml = isRunning ? `<span class="pulse-live-timer tabular-nums" data-live-timer="true" data-running="true" data-server-elapsed-ms="${Math.max(0, Math.round(tree.elapsedMs))}">${escapeHtml(formatDurationCompact(computeLiveElapsedMs(tree.elapsedMs, snapshotReceivedAtMs, nowMs)))}</span>` : '<span class="pulse-empty-note">Idle</span>';
+    const mixEntries = Object.entries(tree.modelMix ?? {});
+    const mixHtml = mixEntries.length > 0 ? mixEntries.map(
+      ([label, count]) => `<span class="pulse-fleet-mix-pill tabular-nums"><span class="pulse-btn-label">${escapeHtml(label)} \xD7${count}</span></span>`
+    ).join("") : '<span class="pulse-empty-note">\u2014</span>';
+    const drawerHtml = isExpanded ? `<ul class="pulse-fleet-drawer" role="list" data-testid="fleet-tree-drawer">${tree.nodes.map((node) => renderDrawerNodeHtml(node)).join("")}</ul>` : "";
+    return `
+    <li class="pulse-fleet-tree-item">
+      <article class="pulse-fleet-tree-card pulse-tier-${rootTier}" data-tier="${rootTier}" data-active="${isRunning ? "true" : "false"}" data-testid="fleet-tree-card" data-root-cid="${escapeHtml(tree.rootCascadeId)}">
+        <div class="pulse-fleet-tree-row-1">
+          <div class="pulse-fleet-tree-ident">
+            <span class="pulse-phase-dot" data-phase="${mapPhaseToDotAttr(tree.rootPhase)}" aria-hidden="true"></span>
+            <span class="pulse-fleet-tree-title" title="${escapeHtml(tree.rootTitle)}">${escapeHtml(tree.rootTitle || tree.rootCascadeId)}</span>
+          </div>
+          ${canJumpRoot ? `<button type="button" class="pulse-btn-compact" data-action="jump-node" data-cid="${escapeHtml(tree.rootCascadeId)}" title="Focus ${escapeHtml(tree.rootTitle)}" aria-label="Focus ${escapeHtml(tree.rootTitle)}">\u2197</button>` : ""}
+        </div>
+        <div class="pulse-fleet-tree-meta tabular-nums">
+          <span class="pulse-node-kind">${escapeHtml(formatPhaseCompactLabel(tree.rootPhase))}</span>
+          <span>${tree.activeNodeCount}/${tree.totalNodeCount} nodes</span>
+          ${elapsedHtml}
+          ${tree.treeDeltaQuota5hPct !== null ? `<span>\u03945h ${escapeHtml(formatDeltaQuotaPct(tree.treeDeltaQuota5hPct))}</span>` : ""}
+        </div>
+        <div class="pulse-fleet-tree-controls">
+          <div class="pulse-fleet-mix-strip">${mixHtml}</div>
+          <button
+            type="button"
+            class="pulse-btn-compact pulse-fleet-toggle-btn"
+            data-action="toggle-tree"
+            data-root-cid="${escapeHtml(tree.rootCascadeId)}"
+            aria-expanded="${isExpanded ? "true" : "false"}"
+          ><span class="pulse-btn-label">${isExpanded ? "\u25BE" : "\u25B8"} \u8282\u70B9 (${tree.nodes.length})</span></button>
+        </div>
+        ${drawerHtml}
+      </article>
+    </li>
+  `;
+  }
+  function renderProjectGroupHtml(project, uiState, nowMs, snapshotReceivedAtMs) {
+    const displayProjectName = project.projectName?.trim() || "Workspace Unavailable";
+    const isActiveWs = isProjectActiveWorkspace(
+      project.workspaceUris,
+      uiState.activeWorkspaceUris
+    );
+    const treesHtml = project.trees.length > 0 ? `<ul class="pulse-fleet-tree-list" role="list">${project.trees.map(
+      (tree) => renderTreeCardHtml(
+        tree,
+        uiState.expandedTreeIds.has(tree.rootCascadeId),
+        nowMs,
+        snapshotReceivedAtMs
+      )
+    ).join("")}</ul>` : '<p class="pulse-empty-note">\u6682\u65E0\u8FD1\u671F\u4F1A\u8BDD\u6811\u3002</p>';
+    return `
+    <article class="pulse-fleet-project-card" data-testid="fleet-project-card" data-project-key="${escapeHtml(project.projectKey)}">
+      <div class="pulse-fleet-project-head">
+        <div class="pulse-fleet-project-ident">
+          <h3 class="pulse-project-title" title="${escapeHtml(displayProjectName)}">${escapeHtml(displayProjectName)}</h3>
+          ${isActiveWs ? '<span class="pulse-pill pulse-tier-fast" data-tier="fast" data-testid="fleet-active-workspace-badge"><span class="pulse-btn-label">\u5F53\u524D\u5DE5\u4F5C\u533A</span></span>' : ""}
+        </div>
+        <span class="pulse-pill ${project.runningCount > 0 ? "pulse-tier-workhorse" : ""} tabular-nums" ${project.runningCount > 0 ? 'data-tier="workhorse"' : ""}>${project.runningCount} running</span>
+      </div>
+      ${treesHtml}
+    </article>
+  `;
+  }
+  function renderBurnerRowHtml(entry) {
+    const burnerTier = sanitizeTier(entry.dominantTier);
+    const consumedPct = Math.max(
+      0,
+      Number.isFinite(entry.consumed5hPct) ? entry.consumed5hPct : entry.delta5hPct
+    );
+    const canJump = UUID_RE.test(entry.rootCascadeId);
+    const projectLabel = entry.projectName?.trim() || "Workspace Unavailable";
+    return `
+    <li class="pulse-burner-row pulse-tier-${burnerTier}" data-tier="${burnerTier}" data-testid="fleet-burner-row" data-rank="${entry.rank}">
+      <div class="pulse-burner-top">
+        <div class="pulse-burner-ident">
+          <span class="pulse-burner-rank tabular-nums">#${entry.rank}</span>
+          <span class="pulse-phase-dot" data-phase="${entry.isRunning ? "streaming" : "idle"}" aria-hidden="true"></span>
+          <span class="pulse-burner-title" title="${escapeHtml(entry.title)}">${escapeHtml(entry.title || entry.rootCascadeId)}</span>
+        </div>
+        ${canJump ? `<button type="button" class="pulse-btn-compact" data-action="jump-node" data-cid="${escapeHtml(entry.rootCascadeId)}" title="Focus ${escapeHtml(entry.title)}" aria-label="Focus ${escapeHtml(entry.title)}">\u2197</button>` : ""}
+      </div>
+      <div class="pulse-burner-meta tabular-nums">
+        <span class="pulse-node-kind"><span class="pulse-btn-label">${escapeHtml(projectLabel)}</span></span>
+        <span class="pulse-pill pulse-tier-${burnerTier}" data-tier="${burnerTier}" title="${escapeHtml(entry.dominantModel)}"><span class="pulse-btn-label">${escapeHtml(entry.dominantModel)}</span></span>
+        <span class="pulse-burner-delta">${escapeHtml(formatDeltaQuotaPct(consumedPct))}</span>
+        <span class="pulse-burner-tokens">${escapeHtml(formatTokensCompact(entry.totalTokens))} tok</span>
+      </div>
+    </li>
+  `;
+  }
+  function renderFleetQuotaBucketHtml(label, bucket) {
+    if (!bucket) {
+      return `
+      <div class="pulse-quota-card">
+        <div class="pulse-health-meta">
+          <span>${escapeHtml(label)}</span>
+          <span class="tabular-nums">\u2014</span>
+        </div>
+        <progress class="pulse-progress" data-level="normal" max="100" value="0" aria-label="${escapeHtml(label)}"></progress>
+        <span class="pulse-empty-note">\u6682\u65E0\u914D\u989D\u6570\u636E</span>
+      </div>
+    `;
+    }
+    const level = bucket.isLowAlert || bucket.remainingPct < 15 ? "critical_85" : bucket.remainingPct < 40 ? "warn_70" : "normal";
+    return `
+    <div class="pulse-quota-card">
+      <div class="pulse-health-meta">
+        <span>${escapeHtml(label)}</span>
+        <span class="tabular-nums ${bucket.isLowAlert ? "pulse-quota-alert" : ""}">${escapeHtml(formatPct(bucket.remainingPct, 1))}</span>
+      </div>
+      <progress class="pulse-progress" data-level="${level}" max="100" value="${clampProgressPct(bucket.remainingPct).toFixed(1)}" aria-label="${escapeHtml(label)}"></progress>
+      <div class="pulse-health-meta tabular-nums">
+        <span>${escapeHtml(bucket.bucketId)}</span>
+        <span>Reset: ${escapeHtml(bucket.resetInLabel)}</span>
+      </div>
+    </div>
+  `;
+  }
+  function renderFleetFuelFooterHtml(snapshot) {
+    const q = snapshot.quota;
+    const g5Text = q.gemini5h ? `${formatPct(q.gemini5h.remainingPct, 1)} (${q.gemini5h.resetInLabel})` : "\u2014";
+    const gwText = q.geminiWeekly ? formatPct(q.geminiWeekly.remainingPct, 1) : "\u2014";
+    const tp5Text = q.thirdParty5h ? `${formatPct(q.thirdParty5h.remainingPct, 1)} (${q.thirdParty5h.resetInLabel})` : "\u2014";
+    const g5Low = Boolean(q.gemini5h?.isLowAlert);
+    return `
+    <footer class="pulse-fuel-bar" data-testid="fleet-fuel-bar">
+      <div class="pulse-fuel-lines tabular-nums">
+        <div class="pulse-fuel-line">
+          <span class="${g5Low ? "pulse-quota-alert" : ""}">Gemini 5h: ${escapeHtml(g5Text)}</span>
+          <span>\xB7 Weekly: ${escapeHtml(gwText)}</span>
+        </div>
+        <div class="pulse-fuel-line">
+          <span>3P 5h: ${escapeHtml(tp5Text)}</span>
+          <span>\xB7 Projects: ${snapshot.projects.length}</span>
+        </div>
+      </div>
+    </footer>
+  `;
+  }
+  function createFleetView(root, bindings) {
+    root.innerHTML = `
+    <div class="pulse-fleet-shell" data-testid="fleet-shell">
+      <div class="pulse-fleet-scroll" data-testid="fleet-scroll">
+        <div class="pulse-fleet-grid" data-testid="fleet-grid"></div>
+      </div>
+      <div data-slot="fleet-fuel"></div>
+    </div>
+  `;
+    const scrollEl = root.querySelector(".pulse-fleet-scroll");
+    const gridEl = root.querySelector(".pulse-fleet-grid");
+    const fuelSlot = root.querySelector('[data-slot="fleet-fuel"]');
+    const onRootClick = (ev) => {
+      const actionEl = ev.target?.closest("[data-action]");
+      if (!actionEl) {
+        return;
+      }
+      const action = actionEl.getAttribute("data-action");
+      if (action === "toggle-tree") {
+        const rootCid = actionEl.getAttribute("data-root-cid");
+        if (rootCid) {
+          bindings.onToggleTree(rootCid);
+        }
+        return;
+      }
+      if (action === "jump-node") {
+        const cid = actionEl.getAttribute("data-cid");
+        if (cid) {
+          bindings.onJumpConversation(cid);
+        }
+      }
+    };
+    root.addEventListener("click", onRootClick);
+    return {
+      render(snapshot, uiState, snapshotReceivedAtMs) {
+        if (!snapshot) {
+          gridEl.innerHTML = `
+          <section class="pulse-hero pulse-fleet-headline" data-testid="fleet-headline">
+            <h1 class="pulse-fleet-h1">Pulse Fleet</h1>
+            <p class="pulse-empty-note">${uiState.isLoading ? "\u6B63\u5728\u52A0\u8F7D\u8DE8\u9879\u76EE\u7B97\u529B\u96F7\u8FBE\u2026" : "\u6682\u65E0\u53EF\u7528\u96C6\u7FA4\u9065\u6D4B\u6570\u636E\u3002"}</p>
+          </section>
+        `;
+          fuelSlot.innerHTML = "";
+          return;
+        }
+        const prevScrollTop = scrollEl.scrollTop ?? 0;
+        const nowMs = Date.now();
+        const topBurners = snapshot.topQuotaBurners.slice(0, 5);
+        const statusToastHtml = uiState.statusMessage ? `<p class="pulse-empty-note" role="status">${escapeHtml(uiState.statusMessage)}</p>` : "";
+        const projectsHtml = snapshot.projects.length > 0 ? snapshot.projects.map((proj) => renderProjectGroupHtml(proj, uiState, nowMs, snapshotReceivedAtMs)).join("") : '<div class="pulse-quota-card" data-testid="fleet-empty"><p class="pulse-empty-note">\u5F53\u524D\u6682\u65E0\u6D3B\u8DC3\u6216\u8FD1\u671F Cascade \u4F1A\u8BDD\u6811\u3002</p></div>';
+        const burnersHtml = topBurners.length > 0 ? `<ol class="pulse-burner-list" data-testid="fleet-burner-list">${topBurners.map((entry) => renderBurnerRowHtml(entry)).join("")}</ol>` : '<div class="pulse-quota-card" data-testid="fleet-burners-empty"><p class="pulse-empty-note">5 \u5C0F\u65F6\u7A97\u53E3\u5185\u6682\u65E0\u663E\u8457\u914D\u989D\u6D88\u8017\u8BB0\u5F55</p></div>';
+        gridEl.innerHTML = `
+        ${renderHeadlineHtml(snapshot)}
+        <section class="pulse-fleet-col-projects" data-testid="fleet-projects">
+          <div class="pulse-section-head">
+            <h2 class="pulse-section-title">Cross-Project Matrix (${snapshot.projects.length})</h2>
+          </div>
+          ${statusToastHtml}
+          ${projectsHtml}
+        </section>
+        <div class="pulse-fleet-col-sidebar">
+          <section class="pulse-fleet-burners" data-testid="fleet-burners">
+            <div class="pulse-section-head">
+              <h2 class="pulse-section-title">Top 5 Quota Burners</h2>
+              <span class="pulse-empty-note">5h Window</span>
+            </div>
+            ${burnersHtml}
+          </section>
+          <section class="pulse-fleet-quota" data-testid="fleet-quota">
+            <div class="pulse-section-head">
+              <h2 class="pulse-section-title">Global Quota</h2>
+            </div>
+            <div class="pulse-fleet-quota-grid">
+              ${renderFleetQuotaBucketHtml("Gemini 5h", snapshot.quota.gemini5h)}
+              ${renderFleetQuotaBucketHtml("Gemini Weekly", snapshot.quota.geminiWeekly)}
+              ${renderFleetQuotaBucketHtml("Claude / 3P 5h", snapshot.quota.thirdParty5h)}
+              ${renderFleetQuotaBucketHtml("Claude / 3P Weekly", snapshot.quota.thirdPartyWeekly)}
+            </div>
+          </section>
+        </div>
+      `;
+        fuelSlot.innerHTML = renderFleetFuelFooterHtml(snapshot);
+        scrollEl.scrollTop = prevScrollTop;
+      },
+      tickTimers(nowMs, snapshotReceivedAtMs) {
+        const timerNodes = root.querySelectorAll('[data-live-timer="true"]');
+        for (const el of timerNodes) {
+          if (el.getAttribute("data-running") !== "true") {
+            continue;
+          }
+          const serverMs = Number(el.getAttribute("data-server-elapsed-ms") ?? "0");
+          const nextText = formatDurationCompact(
+            computeLiveElapsedMs(serverMs, snapshotReceivedAtMs, nowMs)
+          );
+          if (el.textContent !== nextText) {
+            el.textContent = nextText;
+          }
+        }
+      },
+      showLoading(message = "\u6B63\u5728\u52A0\u8F7D Pulse Fleet \u9065\u6D4B\u4FA7\u8F66\u2026") {
+        gridEl.innerHTML = `
+        <section class="pulse-hero pulse-fleet-headline" data-testid="fleet-headline">
+          <h1 class="pulse-fleet-h1">Pulse Fleet</h1>
+          <p class="pulse-empty-note">${escapeHtml(message)}</p>
+        </section>
+      `;
+      },
+      showError(message) {
+        gridEl.innerHTML = `
+        <section class="pulse-hero pulse-fleet-headline" data-testid="fleet-headline">
+          <h1 class="pulse-fleet-h1">Pulse Fleet</h1>
+          <aside class="pulse-banner pulse-tier-alert" data-tier="alert" role="alert">${escapeHtml(message)}</aside>
+        </section>
+      `;
+      },
+      destroy() {
+        root.removeEventListener("click", onRootClick);
+      }
+    };
+  }
+
+  // src/core/timeline-builder.ts
+  var OVERTHINKING_RATIO_THRESHOLD_PCT = 75;
+  var OVERTHINKING_SHORT_RESPONSE_MAX_TOKENS = 500;
+  function isOverthinkingTurn(turn) {
+    return turn.outputTokens > 0 && turn.thinkingRatioPct >= OVERTHINKING_RATIO_THRESHOLD_PCT && (turn.responseOutputTokens <= OVERTHINKING_SHORT_RESPONSE_MAX_TOKENS || turn.tier === "apex");
+  }
+
+  // src/ui/hud-view.ts
+  var UUID_RE2 = /^[0-9a-f-]{36}$/i;
   var TAB_ORDER = ["overview", "timeline", "quota"];
   var ACTIVE_PHASES = /* @__PURE__ */ new Set([
     "PRE_FLIGHT",
@@ -74,11 +459,11 @@
     PRE_FLIGHT: 5,
     IDLE: 6
   };
-  var VALID_TIERS = /* @__PURE__ */ new Set(["apex", "workhorse", "fast", "orchestrator", "alert"]);
-  function sanitizeTier(tier) {
-    return tier && VALID_TIERS.has(tier) ? tier : "workhorse";
+  var VALID_TIERS2 = /* @__PURE__ */ new Set(["apex", "workhorse", "fast", "orchestrator", "alert"]);
+  function sanitizeTier2(tier) {
+    return tier && VALID_TIERS2.has(tier) ? tier : "workhorse";
   }
-  function mapPhaseToDotAttr(phase) {
+  function mapPhaseToDotAttr2(phase) {
     switch (phase) {
       case "PRE_FLIGHT":
         return "pre_flight";
@@ -116,7 +501,7 @@
         return "MODEL";
     }
   }
-  function clampProgressPct(value) {
+  function clampProgressPct2(value) {
     if (typeof value !== "number" || !Number.isFinite(value)) {
       return 0;
     }
@@ -209,13 +594,13 @@
       </section>
     `;
     }
-    const parentCid = activeNode.parentCascadeId && UUID_RE.test(activeNode.parentCascadeId) ? activeNode.parentCascadeId : snapshot.breadcrumb.length > 1 && UUID_RE.test(snapshot.breadcrumb[0].cascadeId) ? snapshot.breadcrumb[0].cascadeId : null;
+    const parentCid = activeNode.parentCascadeId && UUID_RE2.test(activeNode.parentCascadeId) ? activeNode.parentCascadeId : snapshot.breadcrumb.length > 1 && UUID_RE2.test(snapshot.breadcrumb[0].cascadeId) ? snapshot.breadcrumb[0].cascadeId : null;
     const showBreadcrumb = Boolean(activeNode.parentCascadeId || snapshot.breadcrumb.length > 1);
     const breadcrumbText = snapshot.breadcrumb.length > 0 ? snapshot.breadcrumb.map((item) => item.role || item.title).filter(Boolean).join(" \u203A ") : `${activeNode.role ?? activeNode.title}`;
     const phaseParts = formatHeroPhaseText(activeNode, nowMs, snapshotReceivedAtMs);
     const showRouteArrow = activeNode.routingStatus === "routed" || activeNode.routingStatus === "mismatch_or_fallback" || activeNode.requestedModel.displayName && activeNode.requestedModel.displayName !== activeNode.servedModel.displayName;
     const nameplateText = showRouteArrow ? `${activeNode.requestedModel.displayName} \u2794 ${activeNode.servedModel.displayName}` : activeNode.servedModel.displayName;
-    const heroTier = sanitizeTier(activeNode.servedModel.tier);
+    const heroTier = sanitizeTier2(activeNode.servedModel.tier);
     const rightAlertHtml = activeNode.retryCount > 0 ? `<span class="pulse-pill pulse-tier-alert" data-tier="alert">\u26A0 Retried \xD7${activeNode.retryCount}</span>` : activeNode.routingStatus === "mismatch_or_fallback" ? `<span class="pulse-pill pulse-tier-alert" data-tier="alert">\u26A0 Fallback \u2794 ${escapeHtml(activeNode.servedModel.displayName)}</span>` : activeNode.routingStatus === "matched" ? `<span class="pulse-hero-model-id" title="${escapeHtml(activeNode.servedModel.responseModel)}">\u2713 ${escapeHtml(activeNode.servedModel.responseModel)}</span>` : `<span class="pulse-hero-model-id" title="${escapeHtml(activeNode.servedModel.responseModel)}">${escapeHtml(activeNode.servedModel.responseModel)}</span>`;
     const ctx = activeNode.contextWindow;
     const ctxSummary = ctx.maxContextTokens > 0 ? `${formatTokensCompact(ctx.estimatedTokensUsed)} / ${formatTokensCompact(ctx.maxContextTokens)}` : `${formatTokensCompact(ctx.estimatedTokensUsed)} / \u2014`;
@@ -228,7 +613,7 @@
             </div>` : ""}
       <div class="pulse-hero-phase-row">
         <div class="pulse-hero-phase-left">
-          <span class="pulse-phase-dot" data-phase="${mapPhaseToDotAttr(activeNode.phase)}"></span>
+          <span class="pulse-phase-dot" data-phase="${mapPhaseToDotAttr2(activeNode.phase)}"></span>
           ${phaseParts.labelHtml}
           ${phaseParts.timerHtml}
         </div>
@@ -247,14 +632,14 @@
             <span>CTX ${escapeHtml(ctxSummary)}</span>
             <span>${escapeHtml(ctxPctText)}</span>
           </div>
-          <progress class="pulse-progress" data-level="${escapeHtml(ctx.level)}" max="100" value="${clampProgressPct(ctx.pct).toFixed(1)}" aria-label="Context window usage"></progress>
+          <progress class="pulse-progress" data-level="${escapeHtml(ctx.level)}" max="100" value="${clampProgressPct2(ctx.pct).toFixed(1)}" aria-label="Context window usage"></progress>
         </div>
         <div class="pulse-health-cell">
           <div class="pulse-health-meta tabular-nums">
             <span>Cache Hit</span>
             <span>${escapeHtml(formatPct(activeNode.cacheHitPct, 1))}</span>
           </div>
-          <progress class="pulse-progress" data-level="normal" max="100" value="${clampProgressPct(activeNode.cacheHitPct).toFixed(1)}" aria-label="Prompt cache hit ratio"></progress>
+          <progress class="pulse-progress" data-level="normal" max="100" value="${clampProgressPct2(activeNode.cacheHitPct).toFixed(1)}" aria-label="Prompt cache hit ratio"></progress>
         </div>
       </div>
     </section>
@@ -353,16 +738,16 @@
   function renderNodeCardHtml(node, sortMode, openPopoverNodeId, nowMs, snapshotReceivedAtMs) {
     const boundedDepth = sortMode === "topology-tree" ? Math.min(Math.max(0, node.depth), 3) : 0;
     const isSelectedPopover = openPopoverNodeId === node.cascadeId;
-    const nodeTier = sanitizeTier(node.servedModel.tier);
+    const nodeTier = sanitizeTier2(node.servedModel.tier);
     const primaryName = node.kind === "swarm_member" ? node.swarmState?.memberName || node.role || node.title : node.role ? `${node.role} \xB7 ${node.title}` : node.title;
     const kindPill = node.kind === "swarm_member" ? "Swarm" : node.kind === "workflow" ? "Workflow" : node.typeName || (node.kind === "subagent" ? "Subagent" : "");
     const totalIn = node.tokens.inputTokens + node.tokens.cacheReadTokens;
-    const canJump = UUID_RE.test(node.cascadeId);
+    const canJump = UUID_RE2.test(node.cascadeId);
     return `
     <article class="pulse-node-card pulse-tier-${nodeTier}" data-tier="${nodeTier}" data-node-id="${escapeHtml(node.cascadeId)}" style="--pulse-depth: ${boundedDepth}">
       <div class="pulse-node-row-1">
         <div class="pulse-node-identity">
-          <span class="pulse-phase-dot" data-phase="${mapPhaseToDotAttr(node.phase)}"></span>
+          <span class="pulse-phase-dot" data-phase="${mapPhaseToDotAttr2(node.phase)}"></span>
           <span class="pulse-node-title" title="${escapeHtml(primaryName)}">${escapeHtml(primaryName)}</span>
           ${kindPill ? `<span class="pulse-node-kind">${escapeHtml(kindPill)}</span>` : ""}
         </div>
@@ -461,24 +846,139 @@
     ${idleDrawerHtml}
   `;
   }
-  function renderTimelinePlaceholderHtml(snapshot) {
-    const active = snapshot.activeNode;
-    const turnSummary = active ? `${active.turnCount} turns \xB7 ${active.stepCount} steps` : "0 turns";
-    const ttft = active?.lastTtftMs !== null && active?.lastTtftMs !== void 0 ? formatDurationCompact(active.lastTtftMs) : "\u2014";
-    const streaming = active?.lastStreamingMs !== null && active?.lastStreamingMs !== void 0 ? formatDurationCompact(active.lastStreamingMs) : "\u2014";
+  function formatStepRangeLabel(stepIndices) {
+    if (!Array.isArray(stepIndices) || stepIndices.length === 0) {
+      return "Steps \u2014";
+    }
+    const finite = stepIndices.filter((n) => typeof n === "number" && Number.isFinite(n));
+    if (finite.length === 0) {
+      return "Steps \u2014";
+    }
+    const minStep = Math.min(...finite);
+    const maxStep = Math.max(...finite);
+    return minStep === maxStep ? `Step ${minStep}` : `Steps ${minStep}\u2013${maxStep}`;
+  }
+  function renderTimelineTurnCardHtml(turn, maxTurnMs, effectiveScope, activeConversationId) {
+    const turnTier = sanitizeTier2(turn.tier);
+    const stepLabel = formatStepRangeLabel(turn.stepIndices);
+    const ttftMs = Math.max(0, Number.isFinite(turn.ttftMs) ? turn.ttftMs : 0);
+    const streamingMs = Math.max(0, Number.isFinite(turn.streamingMs) ? turn.streamingMs : 0);
+    const totalMs = Math.max(
+      0,
+      Number.isFinite(turn.totalMs) && turn.totalMs > 0 ? turn.totalMs : ttftMs + streamingMs
+    );
+    const denomMs = Math.max(1, ttftMs + streamingMs, totalMs);
+    const trackPct = totalMs > 0 ? Math.max(4, Math.min(100, totalMs / maxTurnMs * 100)) : 0;
+    const ttftPct = totalMs > 0 ? Math.max(0, Math.min(100, ttftMs / denomMs * 100)) : 0;
+    const streamPct = totalMs > 0 ? Math.max(0, Math.min(100 - ttftPct, streamingMs / denomMs * 100)) : 0;
+    const tokPerSec = streamingMs > 0 && turn.outputTokens > 0 ? Math.round(turn.outputTokens * 1e3 / streamingMs) : null;
+    const showNodeChip = effectiveScope === "tree" && Boolean(turn.cascadeId) && turn.cascadeId !== activeConversationId;
+    const nodeChipLabel = turn.role || turn.cascadeTitle || turn.cascadeId.slice(0, 8);
+    const nodeChipHtml = showNodeChip ? UUID_RE2.test(turn.cascadeId) ? `<button type="button" class="pulse-btn-compact pulse-timeline-node-chip" data-action="jump-node" data-cid="${escapeHtml(turn.cascadeId)}" title="Switch to ${escapeHtml(nodeChipLabel)}" aria-label="Switch to ${escapeHtml(nodeChipLabel)}"><span class="pulse-btn-label">${escapeHtml(nodeChipLabel)}</span></button>` : `<span class="pulse-node-kind"><span class="pulse-btn-label">${escapeHtml(nodeChipLabel)}</span></span>` : "";
+    const modelLabel = turn.servedModelDisplayName || turn.responseModel || "Unknown Model";
+    const modelTooltip = turn.responseModel && turn.responseModel !== modelLabel ? `${modelLabel} (${turn.responseModel})` : modelLabel;
+    const hasRouteShift = Boolean(turn.routingChangedFromPrevTurn);
+    const requestedLabel = turn.requestedLabel || "";
+    const isAutoRouted = !hasRouteShift && /auto|orchestrator/i.test(requestedLabel);
+    const routeBadgeHtml = hasRouteShift ? `<span class="pulse-pill pulse-tier-orchestrator pulse-timeline-shift-pill" data-tier="orchestrator" data-testid="timeline-route-shift" title="${escapeHtml(`${requestedLabel || "Prev"} \u2794 ${modelLabel}`)}"><span class="pulse-btn-label">\u26A1 ${escapeHtml(requestedLabel || "Prev")} \u2794 ${escapeHtml(modelLabel)}</span></span>` : isAutoRouted ? `<span class="pulse-pill pulse-tier-orchestrator pulse-timeline-auto-pill" data-tier="orchestrator" title="${escapeHtml(`${requestedLabel} \u2794 ${modelLabel}`)}"><span class="pulse-btn-label">${escapeHtml(requestedLabel)} \u2794 ${escapeHtml(modelLabel)}</span></span>` : "";
+    const retryBadgeHtml = turn.retryCount > 0 ? `<span class="pulse-pill pulse-tier-alert" data-tier="alert" data-testid="timeline-retry-badge">\u26A0 Retried \xD7${turn.retryCount}</span>` : "";
+    const overthinkingBadgeHtml = isOverthinkingTurn(turn) ? `<span class="pulse-pill pulse-tier-orchestrator" data-tier="orchestrator" data-testid="timeline-overthinking-badge">\u{1F4A1} Overthinking</span>` : "";
+    const totalIn = turn.inputTokens + turn.cacheReadTokens;
+    const ctxText = turn.contextMaxTokens > 0 ? `${Math.round(turn.contextPct)}%` : "\u2014";
+    const deltaText = formatDeltaQuotaPct(turn.deltaQuota5hPct);
     return `
-    <article class="pulse-quota-card" data-testid="timeline-placeholder">
-      <strong>Timeline \u8C03\u7528\u8F74 (Stage 2 Flame Axis \u5C31\u7EEA\u4E2D)</strong>
-      <p class="pulse-empty-note">
-        \u5F53\u524D\u7126\u70B9\u4F1A\u8BDD\uFF1A${escapeHtml(active?.title ?? "\u2014")} (${escapeHtml(turnSummary)})
-      </p>
-      <p class="pulse-empty-note tabular-nums">
-        \u6700\u8FD1\u4E00\u8F6E\u5B9E\u6D4B\uFF1ATTFT ${escapeHtml(ttft)} \xB7 Streaming ${escapeHtml(streaming)} \xB7 Cache ${escapeHtml(formatPct(active?.cacheHitPct, 1))}
-      </p>
-      <p class="pulse-empty-note">
-        Stage 2 \u5C06\u5728\u6B64\u9762\u677F\u63A5\u5165\u9010\u8F6E TTFT vs Streaming \u706B\u7130\u56FE\u3001Thinking Token \u5360\u6BD4\u4E0E\u6A21\u578B\u8DEF\u7531\u8DF3\u53D8\u9AD8\u4EAE\u3002
-      </p>
-    </article>
+    <li class="pulse-timeline-item">
+      <article class="pulse-timeline-card pulse-tier-${turnTier}" data-tier="${turnTier}" data-testid="timeline-turn-card" data-turn-index="${turn.turnIndex}">
+        <div class="pulse-timeline-turn-head">
+          <div class="pulse-timeline-turn-left">
+            <span class="pulse-timeline-turn-id tabular-nums">Turn #${turn.turnIndex}</span>
+            <span class="pulse-timeline-steps tabular-nums">${escapeHtml(stepLabel)}</span>
+            ${nodeChipHtml}
+          </div>
+          <div class="pulse-timeline-badges">
+            <span class="pulse-pill pulse-tier-${turnTier}" data-tier="${turnTier}" title="${escapeHtml(modelTooltip)}"><span class="pulse-btn-label">${escapeHtml(modelLabel)}</span></span>
+            ${routeBadgeHtml}
+            ${retryBadgeHtml}
+            ${overthinkingBadgeHtml}
+          </div>
+        </div>
+        <div class="pulse-timeline-flame-wrap">
+          <div
+            class="pulse-timeline-bar"
+            role="img"
+            aria-label="Turn ${turn.turnIndex} flame: TTFT ${escapeHtml(formatDurationCompact(ttftMs))}, Streaming ${escapeHtml(formatDurationCompact(streamingMs))}, Total ${escapeHtml(formatDurationCompact(totalMs))}"
+          >
+            <div class="pulse-timeline-bar-fill" style="width: ${trackPct.toFixed(1)}%;">
+              <span class="pulse-timeline-seg pulse-timeline-seg-ttft" data-segment="ttft" style="width: ${ttftPct.toFixed(1)}%;"></span>
+              <span class="pulse-timeline-seg pulse-timeline-seg-stream" data-segment="stream" style="width: ${streamPct.toFixed(1)}%;"></span>
+            </div>
+          </div>
+          <div class="pulse-timeline-timing-row tabular-nums">
+            <span>TTFT <strong>${escapeHtml(formatDurationCompact(ttftMs))}</strong></span>
+            <span>Stream <strong>${escapeHtml(formatDurationCompact(streamingMs))}</strong>${tokPerSec !== null ? ` \xB7 ${tokPerSec} tok/s` : ""}</span>
+            <span class="pulse-timeline-total">\u03A3 <strong>${escapeHtml(formatDurationCompact(totalMs))}</strong></span>
+          </div>
+        </div>
+        <div class="pulse-timeline-meta-row tabular-nums">
+          <span>Think ${escapeHtml(formatTokensCompact(turn.thinkingOutputTokens))} / ${escapeHtml(formatTokensCompact(turn.outputTokens))} (${Math.round(turn.thinkingRatioPct)}%)</span>
+          <span>In ${escapeHtml(formatTokensCompact(totalIn))} \xB7 Cache ${escapeHtml(formatPct(turn.cacheHitPct, 1))}</span>
+          <span>CTX ${escapeHtml(ctxText)}</span>
+          <span>\u03945h ${escapeHtml(deltaText)}</span>
+        </div>
+      </article>
+    </li>
+  `;
+  }
+  function renderTimelinePanelHtml(snapshot, uiState) {
+    const effectiveScope = uiState.timelineScope ?? uiState.timelineSnapshot?.scope ?? snapshot.config.timelineScope ?? "tree";
+    const timelineSnap = uiState.timelineSnapshot;
+    const turns = timelineSnap?.turns ?? [];
+    const maxTurnMs = Math.max(
+      1,
+      ...turns.map(
+        (t) => Number.isFinite(t.totalMs) && t.totalMs > 0 ? t.totalMs : t.ttftMs + t.streamingMs
+      )
+    );
+    const errorBannerHtml = uiState.timelineError ? `<aside class="pulse-banner pulse-tier-alert" data-tier="alert" role="alert">${escapeHtml(uiState.timelineError)}</aside>` : "";
+    const bodyHtml = uiState.timelineLoading && !timelineSnap ? '<div class="pulse-quota-card" data-testid="timeline-loading"><p class="pulse-empty-note">\u6B63\u5728\u52A0\u8F7D\u9010\u8F6E\u8C03\u7528\u706B\u7130\u8F74\u2026</p></div>' : turns.length === 0 ? `<div class="pulse-quota-card" data-testid="timeline-empty"><p class="pulse-empty-note">\u5F53\u524D${effectiveScope === "tree" ? "\u4F1A\u8BDD\u6811" : "\u4F1A\u8BDD"}\u6682\u65E0\u53EF\u5C55\u793A\u7684\u6A21\u578B\u8C03\u7528\u8F6E\u6B21\u3002</p></div>` : `<ol class="pulse-timeline-list" data-testid="timeline-turns">${turns.map(
+      (t) => renderTimelineTurnCardHtml(
+        t,
+        maxTurnMs,
+        effectiveScope,
+        snapshot.activeConversationId
+      )
+    ).join("")}</ol>`;
+    return `
+    <div class="pulse-timeline-panel" data-testid="timeline-tab-panel">
+      <div class="pulse-section-head pulse-timeline-header">
+        <div class="pulse-topbar-controls" role="group" aria-label="Timeline scope" data-testid="timeline-scope-group">
+          <button
+            type="button"
+            class="pulse-btn-compact"
+            data-action="set-timeline-scope"
+            data-scope="conversation"
+            data-testid="timeline-scope-conversation"
+            aria-pressed="${effectiveScope === "conversation" ? "true" : "false"}"
+          ><span class="pulse-btn-label">\u5F53\u524D\u4F1A\u8BDD</span></button>
+          <button
+            type="button"
+            class="pulse-btn-compact"
+            data-action="set-timeline-scope"
+            data-scope="tree"
+            data-testid="timeline-scope-tree"
+            aria-pressed="${effectiveScope === "tree" ? "true" : "false"}"
+          ><span class="pulse-btn-label">\u6574\u68F5\u4F1A\u8BDD\u6811</span></button>
+        </div>
+        <span class="pulse-section-title tabular-nums" data-testid="timeline-turn-count">${turns.length} turns</span>
+      </div>
+      <div class="pulse-timeline-legend tabular-nums" aria-label="Flame bar legend">
+        <span class="pulse-legend-item"><span class="pulse-legend-swatch" data-segment="ttft" aria-hidden="true"></span>TTFT</span>
+        <span class="pulse-legend-item"><span class="pulse-legend-swatch" data-segment="stream" aria-hidden="true"></span>Streaming</span>
+        <span class="pulse-timeline-legend-note">${uiState.timelineLoading ? "\u540C\u6B65\u4E2D\u2026" : "\u6700\u65B0\u8C03\u7528\u7F6E\u9876"}</span>
+      </div>
+      ${errorBannerHtml}
+      ${bodyHtml}
+    </div>
   `;
   }
   function renderQuotaBucketCardHtml(label, bucket) {
@@ -501,7 +1001,7 @@
         <span>${escapeHtml(label)}</span>
         <span class="tabular-nums ${bucket.isLowAlert ? "pulse-quota-alert" : ""}">${escapeHtml(formatPct(bucket.remainingPct, 1))}</span>
       </div>
-      <progress class="pulse-progress" data-level="${level}" max="100" value="${clampProgressPct(bucket.remainingPct).toFixed(1)}" aria-label="${escapeHtml(label)}"></progress>
+      <progress class="pulse-progress" data-level="${level}" max="100" value="${clampProgressPct2(bucket.remainingPct).toFixed(1)}" aria-label="${escapeHtml(label)}"></progress>
       <div class="pulse-health-meta tabular-nums">
         <span>${escapeHtml(bucket.bucketId)}</span>
         <span>Reset: ${escapeHtml(bucket.resetInLabel)}</span>
@@ -617,8 +1117,10 @@
     const quotaPanel = root.querySelector("#pulse-panel-quota");
     const fuelSlot = root.querySelector('[data-slot="fuel"]');
     const popoverEl = root.querySelector("#pulse-node-popover");
+    const scrollEl = root.querySelector(".pulse-hud-scroll");
     let lastSnapshot = null;
     let lastActiveNodeId = null;
+    let lastRenderedTab = "overview";
     let closeTimer = null;
     const clearCloseTimer = () => {
       if (closeTimer !== null) {
@@ -794,6 +1296,13 @@
           }
           break;
         }
+        case "set-timeline-scope": {
+          const scope = actionEl.getAttribute("data-scope");
+          if (scope === "conversation" || scope === "tree") {
+            bindings.onSetTimelineScope(scope);
+          }
+          break;
+        }
         default:
           break;
       }
@@ -878,11 +1387,15 @@
       render(snapshot, uiState, snapshotReceivedAtMs) {
         lastSnapshot = snapshot;
         lastActiveNodeId = uiState.openPopoverNodeId;
+        const tabChanged = lastRenderedTab !== uiState.activeTab;
+        lastRenderedTab = uiState.activeTab;
+        const prevScrollTop = !tabChanged && scrollEl ? scrollEl.scrollTop : 0;
         syncTabs(uiState.activeTab);
         if (!snapshot) {
           statusEl.textContent = "Connecting";
           heroSlot.innerHTML = "";
           overviewPanel.innerHTML = '<p class="pulse-empty-note">\u6B63\u5728\u8FDE\u63A5 Model Pulse Sidecar\u2026</p>';
+          timelinePanel.innerHTML = '<p class="pulse-empty-note">\u6B63\u5728\u8FDE\u63A5 Model Pulse Sidecar\u2026</p>';
           fuelSlot.innerHTML = "";
           return;
         }
@@ -895,9 +1408,12 @@
           nowMs,
           snapshotReceivedAtMs
         );
-        timelinePanel.innerHTML = renderTimelinePlaceholderHtml(snapshot);
+        timelinePanel.innerHTML = renderTimelinePanelHtml(snapshot, uiState);
         quotaPanel.innerHTML = renderQuotaPanelHtml(snapshot, uiState);
         fuelSlot.innerHTML = renderFuelBarHtml(snapshot);
+        if (scrollEl) {
+          scrollEl.scrollTop = prevScrollTop;
+        }
         if (uiState.openPopoverNodeId) {
           const node = snapshot.treeNodes.find((n) => n.cascadeId === uiState.openPopoverNodeId);
           if (node) {
@@ -958,7 +1474,7 @@
   }
 
   // src/ui/state.ts
-  var UUID_RE2 = /^[0-9a-f-]{36}$/i;
+  var UUID_RE3 = /^[0-9a-f-]{36}$/i;
   var STAMP_CYCLE = ["smart", "every-turn", "off"];
   var ACTIVE_PHASES2 = /* @__PURE__ */ new Set([
     "PRE_FLIGHT",
@@ -977,11 +1493,11 @@
   }
   function resolveRequestedConversationId() {
     const fromQuery = new URLSearchParams(window.location.search).get("conversationId")?.trim() ?? "";
-    if (UUID_RE2.test(fromQuery)) {
+    if (UUID_RE3.test(fromQuery)) {
       return fromQuery;
     }
     const fromHost = window.sidecar?.conversationId?.trim() ?? "";
-    if (UUID_RE2.test(fromHost)) {
+    if (UUID_RE3.test(fromHost)) {
       return fromHost;
     }
     return null;
@@ -1005,6 +1521,21 @@
     }
     return window.fetch(url, init);
   }
+  function jumpToConversation(cid, onFallback) {
+    if (!UUID_RE3.test(cid)) {
+      return;
+    }
+    const bridge = window.sidecar;
+    if (typeof bridge?.focusConversation === "function") {
+      bridge.focusConversation(cid);
+      return;
+    }
+    if (typeof bridge?.ui?.toggleConversation === "function") {
+      bridge.ui.toggleConversation(cid);
+      return;
+    }
+    onFallback(`\u5BBF\u4E3B\u9762\u677F\u672A\u6302\u8F7D\uFF0C\u65E0\u6CD5\u5207\u6362\u81F3\u4F1A\u8BDD ${cid.slice(0, 8)}`);
+  }
   function computeAdaptivePollMs(snapshot) {
     if (!snapshot) {
       return 1500;
@@ -1012,36 +1543,13 @@
     const hasRunning = snapshot.activeNode && ACTIVE_PHASES2.has(snapshot.activeNode.phase) || snapshot.treeNodes.some((node) => ACTIVE_PHASES2.has(node.phase));
     return hasRunning ? 1e3 : 2500;
   }
-  function mountFleetPlaceholder(root) {
-    const cid = resolveRequestedConversationId();
-    root.innerHTML = `
-    <div class="pulse-hud-shell">
-      <section class="pulse-hero pulse-hud-hero" data-testid="fleet-placeholder" role="status">
-        <div class="pulse-hero-phase-row">
-          <div class="pulse-hero-phase-left">
-            <span class="pulse-phase-dot" data-phase="idle"></span>
-            <strong class="pulse-hero-phase-label">Pulse Fleet \xB7 \u8DE8\u9879\u76EE\u5168\u5C40\u96F7\u8FBE</strong>
-          </div>
-          <span class="pulse-pill pulse-tier-orchestrator" data-tier="orchestrator">STAGE 2 SEAM</span>
-        </div>
-        <p class="pulse-empty-note">
-          \u5F53\u524D\u89C6\u56FE\uFF1A/fleet${cid ? ` \xB7 Focus ${escapeHtml(cid.slice(0, 8))}` : ""}\u3002
-        </p>
-        <p class="pulse-empty-note">
-          Stage 2 \u5C06\u5728\u6B64\u9762\u677F\u63A5\u5165\u8DE8\u9879\u76EE\u6D3B\u8DC3 Cascade \u6C47\u603B\u3001\u6A21\u578B\u5206\u5E03\u76F4\u65B9\u56FE\u4E0E Top 5 \u914D\u989D\u6D88\u8017\u699C\u3002
-        </p>
-      </section>
-    </div>
-  `;
-    return () => {
-      root.replaceChildren();
-    };
-  }
-  function mountPulseUi(root) {
-    const viewMode = resolvePulseViewMode();
-    if (viewMode === "fleet") {
-      return mountFleetPlaceholder(root);
+  function computeFleetAdaptivePollMs(snapshot) {
+    if (!snapshot) {
+      return 1500;
     }
+    return snapshot.activeHeadline.totalRunningNodes > 0 ? 1e3 : 2500;
+  }
+  function mountFleetUi(root) {
     let disposed = false;
     let paused = isDocumentInitiallyHidden();
     let lastSnapshot = null;
@@ -1052,11 +1560,10 @@
     let inFlightAbort = null;
     let requestSeq = 0;
     const uiState = {
-      activeTab: "overview",
-      expandedIdleGroup: false,
-      openPopoverNodeId: null,
-      isUpdatingConfig: false,
-      statusMessage: null
+      expandedTreeIds: /* @__PURE__ */ new Set(),
+      activeWorkspaceUris: [],
+      statusMessage: null,
+      isLoading: true
     };
     let view;
     const renderCurrent = () => {
@@ -1081,7 +1588,7 @@
       if (pollTimer !== null) {
         window.clearTimeout(pollTimer);
       }
-      const delayMs = computeAdaptivePollMs(lastSnapshot);
+      const delayMs = computeFleetAdaptivePollMs(lastSnapshot);
       pollTimer = window.setTimeout(() => {
         void pollOnce();
       }, delayMs);
@@ -1095,6 +1602,305 @@
           view.tickTimers(Date.now(), snapshotReceivedAtMs);
         }
       }, 100);
+    };
+    const pollOnce = async () => {
+      if (disposed || paused) {
+        return;
+      }
+      if (inFlightAbort) {
+        inFlightAbort.abort();
+      }
+      const abortController = new AbortController();
+      inFlightAbort = abortController;
+      const seq = ++requestSeq;
+      try {
+        const params = new URLSearchParams();
+        if (currentEtag) {
+          params.set("etag", currentEtag);
+        }
+        const query = params.toString();
+        const response = await sidecarFetch(`/api/fleet${query ? `?${query}` : ""}`, {
+          method: "GET",
+          signal: abortController.signal
+        });
+        if (disposed || seq !== requestSeq) {
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        if (disposed || seq !== requestSeq) {
+          return;
+        }
+        if ("unchanged" in payload && payload.unchanged === true) {
+          currentEtag = payload.etag;
+          uiState.isLoading = false;
+          return;
+        }
+        lastSnapshot = payload;
+        currentEtag = payload.etag;
+        snapshotReceivedAtMs = Date.now();
+        uiState.isLoading = false;
+        uiState.statusMessage = null;
+        renderCurrent();
+      } catch (err) {
+        if (abortController.signal.aborted || disposed || seq !== requestSeq) {
+          return;
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        uiState.isLoading = false;
+        if (!lastSnapshot) {
+          view.showError(`\u65E0\u6CD5\u8BFB\u53D6 Fleet \u72B6\u6001\uFF1A${msg}`);
+        } else {
+          uiState.statusMessage = `\u96C6\u7FA4\u5237\u65B0\u6682\u4E0D\u53EF\u7528 (${msg})`;
+          renderCurrent();
+        }
+      } finally {
+        if (inFlightAbort === abortController) {
+          inFlightAbort = null;
+        }
+        scheduleNextPoll();
+      }
+    };
+    view = createFleetView(root, {
+      onToggleTree(rootCascadeId) {
+        if (uiState.expandedTreeIds.has(rootCascadeId)) {
+          uiState.expandedTreeIds.delete(rootCascadeId);
+        } else {
+          uiState.expandedTreeIds.add(rootCascadeId);
+        }
+        renderCurrent();
+      },
+      onJumpConversation(cid) {
+        jumpToConversation(cid, (fallbackMsg) => {
+          uiState.statusMessage = fallbackMsg;
+          renderCurrent();
+        });
+      }
+    });
+    if (typeof window.sidecar?.getWorkspaceUris === "function") {
+      void window.sidecar.getWorkspaceUris().then((uris) => {
+        if (!disposed && Array.isArray(uris)) {
+          uiState.activeWorkspaceUris = uris;
+          if (lastSnapshot) {
+            renderCurrent();
+          }
+        }
+      }).catch(() => {
+      });
+    }
+    const unsubscribeWorkspace = typeof window.sidecar?.onWorkspaceChange === "function" ? window.sidecar.onWorkspaceChange((uris) => {
+      if (!disposed && Array.isArray(uris)) {
+        uiState.activeWorkspaceUris = uris;
+        if (lastSnapshot) {
+          renderCurrent();
+        }
+      }
+    }) : null;
+    const onVisibilityChange = () => {
+      const nowHidden = document.visibilityState === "hidden";
+      if (nowHidden) {
+        paused = true;
+        clearTimers();
+        inFlightAbort?.abort();
+        return;
+      }
+      if (paused) {
+        paused = false;
+        startStopwatch();
+        void pollOnce();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    view.showLoading();
+    if (!paused) {
+      startStopwatch();
+      void pollOnce();
+    }
+    return () => {
+      disposed = true;
+      clearTimers();
+      inFlightAbort?.abort();
+      unsubscribeWorkspace?.();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      view.destroy();
+    };
+  }
+  function mountPulseUi(root) {
+    const viewMode = resolvePulseViewMode();
+    if (viewMode === "fleet") {
+      return mountFleetUi(root);
+    }
+    let disposed = false;
+    let paused = isDocumentInitiallyHidden();
+    let lastSnapshot = null;
+    let snapshotReceivedAtMs = Date.now();
+    let currentEtag = null;
+    let pollTimer = null;
+    let stopwatchTimer = null;
+    let inFlightAbort = null;
+    let requestSeq = 0;
+    let timelineEtag = null;
+    let timelinePollTimer = null;
+    let timelineAbort = null;
+    let timelineEpoch = 0;
+    let lastTimelineCid = null;
+    const uiState = {
+      activeTab: "overview",
+      expandedIdleGroup: false,
+      openPopoverNodeId: null,
+      isUpdatingConfig: false,
+      statusMessage: null,
+      timelineScope: null,
+      timelineSnapshot: null,
+      timelineLoading: false,
+      timelineError: null
+    };
+    let view;
+    const renderCurrent = () => {
+      if (!disposed) {
+        view.render(lastSnapshot, uiState, snapshotReceivedAtMs);
+      }
+    };
+    const clearTimelineTimerAndAbort = () => {
+      if (timelinePollTimer !== null) {
+        window.clearTimeout(timelinePollTimer);
+        timelinePollTimer = null;
+      }
+      if (timelineAbort) {
+        timelineAbort.abort();
+        timelineAbort = null;
+      }
+      timelineEpoch += 1;
+    };
+    const clearTimers = () => {
+      if (pollTimer !== null) {
+        window.clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+      if (timelinePollTimer !== null) {
+        window.clearTimeout(timelinePollTimer);
+        timelinePollTimer = null;
+      }
+      if (stopwatchTimer !== null) {
+        window.clearInterval(stopwatchTimer);
+        stopwatchTimer = null;
+      }
+    };
+    const scheduleNextPoll = () => {
+      if (disposed || paused) {
+        return;
+      }
+      if (pollTimer !== null) {
+        window.clearTimeout(pollTimer);
+      }
+      const delayMs = computeAdaptivePollMs(lastSnapshot);
+      pollTimer = window.setTimeout(() => {
+        void pollOnce();
+      }, delayMs);
+    };
+    const scheduleNextTimelinePoll = () => {
+      if (disposed || paused || uiState.activeTab !== "timeline") {
+        return;
+      }
+      if (timelinePollTimer !== null) {
+        window.clearTimeout(timelinePollTimer);
+      }
+      const delayMs = computeAdaptivePollMs(lastSnapshot);
+      timelinePollTimer = window.setTimeout(() => {
+        void pollTimelineOnce();
+      }, delayMs);
+    };
+    const startStopwatch = () => {
+      if (disposed || paused || stopwatchTimer !== null) {
+        return;
+      }
+      stopwatchTimer = window.setInterval(() => {
+        if (!disposed && !paused && lastSnapshot) {
+          view.tickTimers(Date.now(), snapshotReceivedAtMs);
+        }
+      }, 100);
+    };
+    const resolveEffectiveTimelineCid = () => {
+      return resolveRequestedConversationId() ?? lastSnapshot?.activeConversationId ?? null;
+    };
+    const resolveEffectiveTimelineScope = () => {
+      return uiState.timelineScope ?? lastSnapshot?.config.timelineScope ?? null;
+    };
+    const pollTimelineOnce = async () => {
+      if (disposed || paused || uiState.activeTab !== "timeline") {
+        return;
+      }
+      if (timelineAbort) {
+        timelineAbort.abort();
+      }
+      if (timelinePollTimer !== null) {
+        window.clearTimeout(timelinePollTimer);
+        timelinePollTimer = null;
+      }
+      const abortController = new AbortController();
+      timelineAbort = abortController;
+      const epoch = ++timelineEpoch;
+      const effectiveCid = resolveEffectiveTimelineCid();
+      const effectiveScope = resolveEffectiveTimelineScope();
+      lastTimelineCid = effectiveCid;
+      try {
+        const params = new URLSearchParams();
+        if (effectiveCid) {
+          params.set("conversationId", effectiveCid);
+        }
+        if (effectiveScope) {
+          params.set("scope", effectiveScope);
+        }
+        if (timelineEtag) {
+          params.set("etag", timelineEtag);
+        }
+        const query = params.toString();
+        const response = await sidecarFetch(`/api/timeline${query ? `?${query}` : ""}`, {
+          method: "GET",
+          signal: abortController.signal
+        });
+        if (disposed || epoch !== timelineEpoch || uiState.activeTab !== "timeline") {
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        if (disposed || epoch !== timelineEpoch || uiState.activeTab !== "timeline") {
+          return;
+        }
+        if ("unchanged" in payload && payload.unchanged === true) {
+          timelineEtag = payload.etag;
+          if (uiState.timelineLoading) {
+            uiState.timelineLoading = false;
+            renderCurrent();
+          }
+          return;
+        }
+        uiState.timelineSnapshot = payload;
+        timelineEtag = payload.etag;
+        uiState.timelineLoading = false;
+        uiState.timelineError = null;
+        if (!uiState.timelineScope) {
+          uiState.timelineScope = payload.scope;
+        }
+        renderCurrent();
+      } catch (err) {
+        if (abortController.signal.aborted || disposed || epoch !== timelineEpoch || uiState.activeTab !== "timeline") {
+          return;
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        uiState.timelineLoading = false;
+        uiState.timelineError = `\u65E0\u6CD5\u8BFB\u53D6\u8C03\u7528\u65F6\u95F4\u8F74 (${msg})`;
+        renderCurrent();
+      } finally {
+        if (timelineAbort === abortController) {
+          timelineAbort = null;
+        }
+        scheduleNextTimelinePoll();
+      }
     };
     const pollOnce = async () => {
       if (disposed || paused) {
@@ -1139,6 +1945,14 @@
         snapshotReceivedAtMs = Date.now();
         uiState.statusMessage = null;
         renderCurrent();
+        if (uiState.activeTab === "timeline") {
+          const nextTimelineCid = resolveEffectiveTimelineCid();
+          if (nextTimelineCid !== lastTimelineCid) {
+            timelineEtag = null;
+            uiState.timelineLoading = true;
+            void pollTimelineOnce();
+          }
+        }
       } catch (err) {
         if (abortController.signal.aborted || disposed) {
           return;
@@ -1214,11 +2028,69 @@
         renderCurrent();
       }
     };
+    const applyTimelineScope = async (nextScope) => {
+      if (disposed) {
+        return;
+      }
+      const currentEffective = uiState.timelineScope ?? lastSnapshot?.config.timelineScope ?? "tree";
+      if (currentEffective === nextScope && uiState.timelineSnapshot?.scope === nextScope) {
+        return;
+      }
+      uiState.timelineScope = nextScope;
+      if (lastSnapshot) {
+        lastSnapshot = {
+          ...lastSnapshot,
+          config: {
+            ...lastSnapshot.config,
+            timelineScope: nextScope
+          }
+        };
+      }
+      timelineEtag = null;
+      currentEtag = null;
+      uiState.timelineLoading = true;
+      uiState.timelineError = null;
+      renderCurrent();
+      if (uiState.activeTab === "timeline" && !paused) {
+        void pollTimelineOnce();
+      }
+      try {
+        const response = await sidecarFetch("/api/config", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ timelineScope: nextScope })
+        });
+        if (!disposed && response.ok) {
+          const updatedConfig = await response.json();
+          if (!disposed && lastSnapshot) {
+            lastSnapshot = {
+              ...lastSnapshot,
+              config: updatedConfig
+            };
+            renderCurrent();
+          }
+        }
+      } catch {
+      }
+    };
     view = createHudView(root, {
       onTabChange(tab) {
         if (uiState.activeTab !== tab) {
           uiState.activeTab = tab;
-          renderCurrent();
+          if (tab === "timeline") {
+            timelineEtag = null;
+            uiState.timelineLoading = true;
+            uiState.timelineError = null;
+            renderCurrent();
+            if (!paused) {
+              void pollTimelineOnce();
+            }
+          } else {
+            clearTimelineTimerAndAbort();
+            renderCurrent();
+          }
         }
       },
       onSetSortMode(mode) {
@@ -1232,15 +2104,10 @@
         renderCurrent();
       },
       onJumpConversation(cid) {
-        if (!UUID_RE2.test(cid)) {
-          return;
-        }
-        if (typeof window.sidecar?.ui?.toggleConversation === "function") {
-          window.sidecar.ui.toggleConversation(cid);
-        } else {
-          uiState.statusMessage = `\u5BBF\u4E3B\u9762\u677F\u672A\u6302\u8F7D\uFF0C\u65E0\u6CD5\u5207\u6362\u81F3\u4F1A\u8BDD ${cid.slice(0, 8)}`;
+        jumpToConversation(cid, (fallbackMsg) => {
+          uiState.statusMessage = fallbackMsg;
           renderCurrent();
-        }
+        });
       },
       onInspectNode(nodeId) {
         uiState.openPopoverNodeId = nodeId;
@@ -1256,6 +2123,9 @@
           return;
         }
         void applyConfigPatch({ inlineStampMode: mode });
+      },
+      onSetTimelineScope(scope) {
+        void applyTimelineScope(scope);
       }
     });
     const onVisibilityChange = () => {
@@ -1264,12 +2134,16 @@
         paused = true;
         clearTimers();
         inFlightAbort?.abort();
+        timelineAbort?.abort();
         return;
       }
       if (paused) {
         paused = false;
         startStopwatch();
         void pollOnce();
+        if (uiState.activeTab === "timeline") {
+          void pollTimelineOnce();
+        }
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -1282,6 +2156,7 @@
       disposed = true;
       clearTimers();
       inFlightAbort?.abort();
+      clearTimelineTimerAndAbort();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       view.destroy();
     };

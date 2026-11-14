@@ -65,6 +65,11 @@ const CIDS = {
   sub5: '2a11c005-5555-4555-8555-555555555505',
   swarm1: '3b22d001-6666-4666-8666-666666666606',
   swarm2: '3b22d002-7777-4777-8777-777777777707',
+  root2: '4c33e001-8888-4888-8888-888888888808',
+  sub6: '4c33e002-9999-4999-8999-899989998909',
+  root3: '5d44f001-aaaa-4aaa-8aaa-aaaaaaaaaa10',
+  hist1: '6e550001-bbbb-4bbb-8bbb-bbbbbbbbbb11',
+  hist2: '7f661001-cccc-4ccc-8ccc-ccccccccbb12',
 };
 
 const PREVIEW_BASE_MS = Date.now();
@@ -619,17 +624,801 @@ function buildScenarioSnapshot(scenario, liveStep, config, requestedCid, nowIso)
 }
 
 function computePreviewEtag(semantic) {
-  const clean =
-    semantic && Array.isArray(semantic.treeNodes)
-      ? {
-          ...semantic,
-          activeNode: semantic.activeNode
-            ? { ...semantic.activeNode, phaseElapsedMs: undefined }
-            : null,
-          treeNodes: semantic.treeNodes.map((n) => ({ ...n, phaseElapsedMs: undefined })),
-        }
-      : semantic;
+  let clean = semantic;
+  if (semantic && Array.isArray(semantic.treeNodes)) {
+    clean = {
+      ...semantic,
+      activeNode: semantic.activeNode
+        ? { ...semantic.activeNode, phaseElapsedMs: undefined }
+        : null,
+      treeNodes: semantic.treeNodes.map((n) => ({ ...n, phaseElapsedMs: undefined })),
+    };
+  } else if (semantic && Array.isArray(semantic.projects)) {
+    clean = {
+      ...semantic,
+      projects: semantic.projects.map((p) => ({
+        ...p,
+        trees: Array.isArray(p.trees)
+          ? p.trees.map((t) => ({
+              ...t,
+              elapsedMs: undefined,
+              nodes: Array.isArray(t.nodes)
+                ? t.nodes.map((n) => ({ ...n, phaseElapsedMs: undefined }))
+                : [],
+            }))
+          : [],
+      })),
+    };
+  }
   return createHash('sha256').update(JSON.stringify(clean)).digest('base64url').slice(0, 6);
+}
+
+function makeTurn(overrides) {
+  const ttftMs = overrides.ttftMs ?? 1200;
+  const streamingMs = overrides.streamingMs ?? 3200;
+  const inputTokens = overrides.inputTokens ?? 8400;
+  const cacheReadTokens = overrides.cacheReadTokens ?? 42000;
+  const thinkingOutputTokens = overrides.thinkingOutputTokens ?? 620;
+  const responseOutputTokens = overrides.responseOutputTokens ?? 980;
+  const outputTokens = overrides.outputTokens ?? thinkingOutputTokens + responseOutputTokens;
+  const totalIn = inputTokens + cacheReadTokens;
+  const cacheHitPct = totalIn > 0 ? Number(((cacheReadTokens / totalIn) * 100).toFixed(1)) : 0;
+  const thinkingRatioPct =
+    outputTokens > 0 ? Number(((thinkingOutputTokens / outputTokens) * 100).toFixed(1)) : 0;
+  const turnIndex = overrides.turnIndex ?? 1;
+
+  return {
+    turnIndex,
+    cascadeId: CIDS.root,
+    cascadeTitle: 'Refactor Telemetry & Auth Pipeline',
+    role: null,
+    stepIndices: [Math.max(1, (turnIndex - 1) * 2 + 1), turnIndex * 2],
+    timestamp: new Date(PREVIEW_BASE_MS - (15 - turnIndex) * 18_000).toISOString(),
+    requestedLabel: 'Argon (Medium)',
+    servedModelDisplayName: 'Argon (Medium)',
+    responseModel: 'gemini-3.8-argon',
+    tier: 'workhorse',
+    routingChangedFromPrevTurn: false,
+    ttftMs,
+    streamingMs,
+    totalMs: ttftMs + streamingMs,
+    inputTokens,
+    cacheReadTokens,
+    cacheHitPct,
+    outputTokens,
+    thinkingOutputTokens,
+    responseOutputTokens,
+    thinkingRatioPct,
+    retryCount: 0,
+    contextUsedTokens: 48000 + turnIndex * 3600,
+    contextMaxTokens: 200000,
+    contextPct: Number((((48000 + turnIndex * 3600) / 200000) * 100).toFixed(1)),
+    deltaQuota5hPct: 0.14,
+    apiProvider: 'google_cloud_code_pa',
+    ...overrides,
+  };
+}
+
+function buildScenarioTimeline(activeScenario, cfg, requestedCid, requestedScope) {
+  const scope = requestedScope || cfg.timelineScope || 'tree';
+  const focusCid = requestedCid || (activeScenario === 'dense' || activeScenario === 'live' ? CIDS.sub1 : CIDS.root);
+
+  let allTurns;
+  if (activeScenario === 'idle') {
+    allTurns = [
+      makeTurn({
+        turnIndex: 3,
+        cascadeId: CIDS.root,
+        cascadeTitle: 'Refactor Telemetry & Auth Pipeline',
+        ttftMs: 920,
+        streamingMs: 2180,
+        inputTokens: 4200,
+        cacheReadTokens: 31800,
+        thinkingOutputTokens: 210,
+        responseOutputTokens: 690,
+        deltaQuota5hPct: 0.03,
+      }),
+      makeTurn({
+        turnIndex: 2,
+        cascadeId: CIDS.sub1,
+        cascadeTitle: 'Auth Trace Verification',
+        role: 'Verifier',
+        ttftMs: 640,
+        streamingMs: 1420,
+        requestedLabel: 'Flash',
+        servedModelDisplayName: 'Gemini 3.5 Flash',
+        responseModel: 'gemini-3.5-flash',
+        tier: 'fast',
+        thinkingOutputTokens: 110,
+        responseOutputTokens: 490,
+        deltaQuota5hPct: 0.01,
+      }),
+      makeTurn({
+        turnIndex: 1,
+        cascadeId: CIDS.root,
+        cascadeTitle: 'Refactor Telemetry & Auth Pipeline',
+        ttftMs: 1180,
+        streamingMs: 2650,
+        thinkingOutputTokens: 290,
+        responseOutputTokens: 810,
+        deltaQuota5hPct: 0.02,
+      }),
+    ];
+  } else if (activeScenario === 'alert') {
+    allTurns = [
+      makeTurn({
+        turnIndex: 6,
+        cascadeId: CIDS.sub1,
+        cascadeTitle: 'Auth Token Exchange Probe',
+        role: 'Explorer',
+        requestedLabel: 'Auto',
+        servedModelDisplayName: 'Gemini 3.5 Flash',
+        responseModel: 'gemini-3.5-flash',
+        tier: 'fast',
+        routingChangedFromPrevTurn: true,
+        retryCount: 3,
+        ttftMs: 4200,
+        streamingMs: 1850,
+        inputTokens: 24500,
+        cacheReadTokens: 6200,
+        thinkingOutputTokens: 280,
+        responseOutputTokens: 540,
+        contextUsedTokens: 174200,
+        contextPct: 87.1,
+        deltaQuota5hPct: 0.34,
+      }),
+      makeTurn({
+        turnIndex: 5,
+        cascadeId: CIDS.root,
+        cascadeTitle: 'Refactor Telemetry & Auth Pipeline',
+        requestedLabel: 'Carbon (High)',
+        servedModelDisplayName: 'Gemini 4 Carbon (High)',
+        responseModel: 'gemini-4-carbon',
+        tier: 'apex',
+        routingChangedFromPrevTurn: true,
+        ttftMs: 28400,
+        streamingMs: 2900,
+        inputTokens: 16800,
+        cacheReadTokens: 121000,
+        thinkingOutputTokens: 1410,
+        responseOutputTokens: 210,
+        contextUsedTokens: 162400,
+        contextPct: 81.2,
+        deltaQuota5hPct: 0.58,
+      }),
+      makeTurn({
+        turnIndex: 4,
+        cascadeId: CIDS.sub2,
+        cascadeTitle: 'Quota Guardrail Audit',
+        role: 'Auditor',
+        ttftMs: 2600,
+        streamingMs: 5400,
+        retryCount: 1,
+        contextUsedTokens: 148000,
+        contextPct: 74.0,
+        deltaQuota5hPct: 0.22,
+      }),
+      makeTurn({
+        turnIndex: 3,
+        cascadeId: CIDS.root,
+        cascadeTitle: 'Refactor Telemetry & Auth Pipeline',
+        requestedLabel: 'Carbon (High)',
+        servedModelDisplayName: 'Gemini 4 Carbon (High)',
+        responseModel: 'gemini-4-carbon',
+        tier: 'apex',
+        ttftMs: 9100,
+        streamingMs: 7400,
+        thinkingOutputTokens: 980,
+        responseOutputTokens: 1120,
+        contextUsedTokens: 131000,
+        contextPct: 65.5,
+        deltaQuota5hPct: 0.45,
+      }),
+      makeTurn({
+        turnIndex: 2,
+        cascadeId: CIDS.sub1,
+        cascadeTitle: 'Auth Token Exchange Probe',
+        role: 'Explorer',
+        ttftMs: 1400,
+        streamingMs: 3900,
+        contextUsedTokens: 92000,
+        contextPct: 46.0,
+        deltaQuota5hPct: 0.16,
+      }),
+      makeTurn({
+        turnIndex: 1,
+        cascadeId: CIDS.root,
+        cascadeTitle: 'Refactor Telemetry & Auth Pipeline',
+        ttftMs: 1850,
+        streamingMs: 4100,
+        contextUsedTokens: 64000,
+        contextPct: 32.0,
+        deltaQuota5hPct: 0.15,
+      }),
+    ];
+  } else {
+    allTurns = [
+      makeTurn({
+        turnIndex: 14,
+        cascadeId: CIDS.sub1,
+        cascadeTitle: 'Investigate Auth Token Exchange',
+        role: 'Explorer',
+        requestedLabel: 'Carbon (High)',
+        servedModelDisplayName: 'Gemini 4 Carbon (High)',
+        responseModel: 'gemini-4-carbon',
+        tier: 'apex',
+        routingChangedFromPrevTurn: true,
+        ttftMs: 42600,
+        streamingMs: 3400,
+        inputTokens: 11200,
+        cacheReadTokens: 181900,
+        thinkingOutputTokens: 1682,
+        responseOutputTokens: 238,
+        contextUsedTokens: 203264,
+        contextMaxTokens: 256000,
+        contextPct: 79.4,
+        deltaQuota5hPct: 0.42,
+      }),
+      makeTurn({
+        turnIndex: 13,
+        cascadeId: CIDS.root,
+        cascadeTitle: 'Refactor Telemetry & Auth Pipeline',
+        requestedLabel: 'Auto',
+        servedModelDisplayName: 'Argon (Medium)',
+        responseModel: 'gemini-3.8-argon',
+        tier: 'workhorse',
+        routingChangedFromPrevTurn: true,
+        retryCount: 2,
+        ttftMs: 5100,
+        streamingMs: 14800,
+        inputTokens: 48200,
+        cacheReadTokens: 10940,
+        thinkingOutputTokens: 1180,
+        responseOutputTokens: 2840,
+        contextUsedTokens: 174336,
+        contextMaxTokens: 256000,
+        contextPct: 68.1,
+        deltaQuota5hPct: 0.28,
+      }),
+      makeTurn({
+        turnIndex: 12,
+        cascadeId: CIDS.sub1,
+        cascadeTitle: 'Investigate Auth Token Exchange',
+        role: 'Explorer',
+        requestedLabel: 'Argon (Medium)',
+        servedModelDisplayName: 'Argon (Medium)',
+        tier: 'workhorse',
+        ttftMs: 680,
+        streamingMs: 8400,
+        inputTokens: 8900,
+        cacheReadTokens: 99600,
+        thinkingOutputTokens: 420,
+        responseOutputTokens: 1640,
+        contextUsedTokens: 168400,
+        contextMaxTokens: 256000,
+        contextPct: 65.8,
+        deltaQuota5hPct: 0.14,
+      }),
+      makeTurn({
+        turnIndex: 11,
+        cascadeId: CIDS.sub2,
+        cascadeTitle: 'Patch State Bus Ring Buffer',
+        role: 'Builder',
+        requestedLabel: 'Flash',
+        servedModelDisplayName: 'Gemini 3.5 Flash',
+        responseModel: 'gemini-3.5-flash',
+        tier: 'fast',
+        ttftMs: 410,
+        streamingMs: 1850,
+        inputTokens: 6400,
+        cacheReadTokens: 20260,
+        thinkingOutputTokens: 120,
+        responseOutputTokens: 540,
+        contextUsedTokens: 78200,
+        contextMaxTokens: 256000,
+        contextPct: 30.5,
+        deltaQuota5hPct: 0.04,
+      }),
+      makeTurn({
+        turnIndex: 10,
+        cascadeId: CIDS.sub1,
+        cascadeTitle: 'Investigate Auth Token Exchange',
+        role: 'Explorer',
+        requestedLabel: 'Orchestrator (Carbon)',
+        servedModelDisplayName: 'Orchestrator (Carbon)',
+        responseModel: 'gemini-pro-orchestrator',
+        tier: 'orchestrator',
+        routingChangedFromPrevTurn: true,
+        ttftMs: 3900,
+        streamingMs: 6100,
+        inputTokens: 14100,
+        cacheReadTokens: 86500,
+        thinkingOutputTokens: 920,
+        responseOutputTokens: 780,
+        contextUsedTokens: 158100,
+        contextMaxTokens: 256000,
+        contextPct: 61.8,
+        deltaQuota5hPct: 0.21,
+      }),
+      makeTurn({
+        turnIndex: 9,
+        cascadeId: CIDS.root,
+        cascadeTitle: 'Refactor Telemetry & Auth Pipeline',
+        ttftMs: 1450,
+        streamingMs: 5300,
+        contextUsedTokens: 149200,
+        contextMaxTokens: 256000,
+        contextPct: 58.3,
+        deltaQuota5hPct: 0.17,
+      }),
+      makeTurn({
+        turnIndex: 8,
+        cascadeId: CIDS.sub1,
+        cascadeTitle: 'Investigate Auth Token Exchange',
+        role: 'Explorer',
+        ttftMs: 920,
+        streamingMs: 4100,
+        contextUsedTokens: 141800,
+        contextMaxTokens: 256000,
+        contextPct: 55.4,
+        deltaQuota5hPct: 0.13,
+      }),
+      makeTurn({
+        turnIndex: 7,
+        cascadeId: CIDS.sub2,
+        cascadeTitle: 'Patch State Bus Ring Buffer',
+        role: 'Builder',
+        requestedLabel: 'Flash',
+        servedModelDisplayName: 'Gemini 3.5 Flash',
+        responseModel: 'gemini-3.5-flash',
+        tier: 'fast',
+        ttftMs: 520,
+        streamingMs: 2400,
+        contextUsedTokens: 69100,
+        contextMaxTokens: 256000,
+        contextPct: 27.0,
+        deltaQuota5hPct: 0.05,
+      }),
+      makeTurn({
+        turnIndex: 6,
+        cascadeId: CIDS.root,
+        cascadeTitle: 'Refactor Telemetry & Auth Pipeline',
+        requestedLabel: 'Carbon (High)',
+        servedModelDisplayName: 'Gemini 4 Carbon (High)',
+        responseModel: 'gemini-4-carbon',
+        tier: 'apex',
+        ttftMs: 8400,
+        streamingMs: 7900,
+        thinkingOutputTokens: 1120,
+        responseOutputTokens: 1480,
+        contextUsedTokens: 129500,
+        contextMaxTokens: 256000,
+        contextPct: 50.6,
+        deltaQuota5hPct: 0.36,
+      }),
+      makeTurn({
+        turnIndex: 5,
+        cascadeId: CIDS.sub1,
+        cascadeTitle: 'Investigate Auth Token Exchange',
+        role: 'Explorer',
+        ttftMs: 1100,
+        streamingMs: 3600,
+        contextUsedTokens: 118000,
+        contextMaxTokens: 256000,
+        contextPct: 46.1,
+        deltaQuota5hPct: 0.12,
+      }),
+      makeTurn({
+        turnIndex: 4,
+        cascadeId: CIDS.sub2,
+        cascadeTitle: 'Patch State Bus Ring Buffer',
+        role: 'Builder',
+        ttftMs: 760,
+        streamingMs: 2950,
+        contextUsedTokens: 54000,
+        contextMaxTokens: 256000,
+        contextPct: 21.1,
+        deltaQuota5hPct: 0.08,
+      }),
+      makeTurn({
+        turnIndex: 3,
+        cascadeId: CIDS.sub1,
+        cascadeTitle: 'Investigate Auth Token Exchange',
+        role: 'Explorer',
+        ttftMs: 1320,
+        streamingMs: 3150,
+        contextUsedTokens: 96000,
+        contextMaxTokens: 256000,
+        contextPct: 37.5,
+        deltaQuota5hPct: 0.11,
+      }),
+      makeTurn({
+        turnIndex: 2,
+        cascadeId: CIDS.root,
+        cascadeTitle: 'Refactor Telemetry & Auth Pipeline',
+        ttftMs: 1050,
+        streamingMs: 2800,
+        contextUsedTokens: 61000,
+        contextMaxTokens: 256000,
+        contextPct: 23.8,
+        deltaQuota5hPct: 0.09,
+      }),
+      makeTurn({
+        turnIndex: 1,
+        cascadeId: CIDS.root,
+        cascadeTitle: 'Refactor Telemetry & Auth Pipeline',
+        ttftMs: 890,
+        streamingMs: 1940,
+        contextUsedTokens: 32000,
+        contextMaxTokens: 256000,
+        contextPct: 12.5,
+        deltaQuota5hPct: 0.06,
+      }),
+    ];
+  }
+
+  const turns =
+    scope === 'conversation'
+      ? allTurns.filter((turn) => turn.cascadeId === focusCid)
+      : allTurns;
+
+  return {
+    rootCascadeId: CIDS.root,
+    scope,
+    turns,
+  };
+}
+
+function summarizeTreeMix(nodes) {
+  const modelMix = {};
+  for (const node of nodes) {
+    const label = node.servedModel.displayName;
+    modelMix[label] = (modelMix[label] || 0) + 1;
+  }
+  return modelMix;
+}
+
+function buildScenarioFleet(activeScenario, semantic, nowIso) {
+  if (activeScenario === 'idle') {
+    const tree1 = {
+      rootCascadeId: CIDS.root,
+      rootTitle: semantic.treeNodes[0]?.title || 'Refactor Telemetry & Auth Pipeline',
+      rootPhase: 'IDLE',
+      activeNodeCount: 0,
+      totalNodeCount: semantic.treeNodes.length,
+      elapsedMs: 0,
+      modelMix: summarizeTreeMix(semantic.treeNodes),
+      nodes: semantic.treeNodes,
+      treeDeltaQuota5hPct: 0.06,
+    };
+
+    return {
+      hostConnected: true,
+      activeHeadline: {
+        runningRoots: 0,
+        runningSubagents: 0,
+        totalRunningNodes: 0,
+        modelHistogram: [],
+      },
+      projects: [
+        {
+          projectKey: 'antigravity-pulse',
+          projectName: 'antigravity-pulse',
+          workspaceUris: ['file:///workspace/antigravity-pulse'],
+          runningCount: 0,
+          trees: [tree1],
+        },
+      ],
+      topQuotaBurners: [],
+      quota: semantic.quota,
+    };
+  }
+
+  const root2 = makeNode({
+    cascadeId: CIDS.root2,
+    rootCascadeId: CIDS.root2,
+    parentCascadeId: null,
+    kind: 'root',
+    title: 'SSA Register Allocator & IR Pass',
+    phase: 'STREAMING',
+    phaseElapsedMs: 14_200,
+    servedModel: {
+      responseModel: 'gemini-4-carbon',
+      displayName: 'Gemini 4 Carbon (High)',
+      modelEnum: 'MODEL_PLACEHOLDER_M427',
+      family: 'gemini',
+      effortTier: 'high',
+      tier: 'apex',
+    },
+    streamingTokPerSec: 68.4,
+    deltaQuota5hPct: 4.18,
+    childrenIds: [CIDS.sub6],
+  });
+  const sub6 = makeNode({
+    cascadeId: CIDS.sub6,
+    rootCascadeId: CIDS.root2,
+    parentCascadeId: CIDS.root2,
+    kind: 'subagent',
+    title: 'CFG Dominance Verifier',
+    role: 'Verifier',
+    typeName: 'verifier',
+    depth: 1,
+    phase: 'TOOL_RUNNING',
+    phaseElapsedMs: 3900,
+    lastTool: { name: 'cargo_test', summary: 'cargo test --package ssa-opt' },
+    servedModel: {
+      responseModel: 'gemini-3.5-flash',
+      displayName: 'Gemini 3.5 Flash',
+      modelEnum: 'flash',
+      family: 'gemini',
+      effortTier: 'flash',
+      tier: 'fast',
+    },
+    deltaQuota5hPct: 0.64,
+    spawnStepIndex: 6,
+  });
+
+  const hist2 = makeNode({
+    cascadeId: CIDS.hist2,
+    rootCascadeId: CIDS.hist2,
+    parentCascadeId: null,
+    kind: 'root',
+    title: 'IR Fuzzing Corpus Triage',
+    status: 'CASCADE_RUN_STATUS_IDLE',
+    phase: 'IDLE',
+    phaseStartedAt: null,
+    phaseElapsedMs: 0,
+    servedModel: {
+      responseModel: 'gemini-3.5-flash',
+      displayName: 'Gemini 3.5 Flash',
+      modelEnum: 'flash',
+      family: 'gemini',
+      effortTier: 'flash',
+      tier: 'fast',
+    },
+    deltaQuota5hPct: 0.74,
+    lastModifiedTime: new Date(PREVIEW_BASE_MS - 180_000).toISOString(),
+  });
+
+  const root3 = makeNode({
+    cascadeId: CIDS.root3,
+    rootCascadeId: CIDS.root3,
+    parentCascadeId: null,
+    kind: 'root',
+    title: 'Unassigned Scratchpad Refactor',
+    status: 'CASCADE_RUN_STATUS_IDLE',
+    phase: 'IDLE',
+    phaseStartedAt: null,
+    phaseElapsedMs: 0,
+    servedModel: {
+      responseModel: 'gemini-pro-orchestrator',
+      displayName: 'Orchestrator (Carbon)',
+      modelEnum: 'MODEL_PLACEHOLDER_M667',
+      family: 'auto',
+      effortTier: 'auto',
+      tier: 'orchestrator',
+    },
+    deltaQuota5hPct: 1.21,
+    lastModifiedTime: new Date(PREVIEW_BASE_MS - 320_000).toISOString(),
+  });
+
+  const hist1 = makeNode({
+    cascadeId: CIDS.hist1,
+    rootCascadeId: CIDS.hist1,
+    parentCascadeId: null,
+    kind: 'root',
+    title: 'Ledger Reconciliation Audit',
+    status: 'CASCADE_RUN_STATUS_IDLE',
+    phase: 'IDLE',
+    phaseStartedAt: null,
+    phaseElapsedMs: 0,
+    servedModel: {
+      responseModel: 'gemini-4-carbon',
+      displayName: 'Gemini 4 Carbon (High)',
+      modelEnum: 'MODEL_PLACEHOLDER_M427',
+      family: 'gemini',
+      effortTier: 'high',
+      tier: 'apex',
+    },
+    deltaQuota5hPct: 1.94,
+    lastModifiedTime: new Date(PREVIEW_BASE_MS - 480_000).toISOString(),
+  });
+
+  const tree1Nodes = semantic.treeNodes;
+  const tree1Active = tree1Nodes.filter(
+    (n) => n.phase !== 'IDLE' && n.phase !== 'ERROR_OR_QUOTA'
+  );
+  const tree1 = {
+    rootCascadeId: CIDS.root,
+    rootTitle: tree1Nodes[0]?.title || 'Refactor Telemetry & Auth Pipeline',
+    rootPhase: tree1Nodes[0]?.phase || 'THINKING',
+    activeNodeCount: tree1Active.length,
+    totalNodeCount: tree1Nodes.length,
+    elapsedMs: Math.max(...tree1Active.map((n) => n.phaseElapsedMs || 0), 0),
+    modelMix: summarizeTreeMix(tree1Nodes),
+    nodes: tree1Nodes,
+    treeDeltaQuota5hPct: semantic.quota.treeDeltaQuota5hPct ?? 3.15,
+  };
+
+  const tree2Nodes = [root2, sub6];
+  const tree2 = {
+    rootCascadeId: CIDS.root2,
+    rootTitle: root2.title,
+    rootPhase: root2.phase,
+    activeNodeCount: 2,
+    totalNodeCount: 2,
+    elapsedMs: root2.phaseElapsedMs,
+    modelMix: summarizeTreeMix(tree2Nodes),
+    nodes: tree2Nodes,
+    treeDeltaQuota5hPct: 4.82,
+  };
+
+  const tree3 = {
+    rootCascadeId: CIDS.hist2,
+    rootTitle: hist2.title,
+    rootPhase: hist2.phase,
+    activeNodeCount: 0,
+    totalNodeCount: 1,
+    elapsedMs: 0,
+    modelMix: summarizeTreeMix([hist2]),
+    nodes: [hist2],
+    treeDeltaQuota5hPct: 0.74,
+  };
+
+  const tree4 = {
+    rootCascadeId: CIDS.root3,
+    rootTitle: root3.title,
+    rootPhase: root3.phase,
+    activeNodeCount: 0,
+    totalNodeCount: 1,
+    elapsedMs: 0,
+    modelMix: summarizeTreeMix([root3]),
+    nodes: [root3],
+    treeDeltaQuota5hPct: 1.21,
+  };
+
+  const tree5 = {
+    rootCascadeId: CIDS.hist1,
+    rootTitle: hist1.title,
+    rootPhase: hist1.phase,
+    activeNodeCount: 0,
+    totalNodeCount: 1,
+    elapsedMs: 0,
+    modelMix: summarizeTreeMix([hist1]),
+    nodes: [hist1],
+    treeDeltaQuota5hPct: 1.94,
+  };
+
+  const projects = [
+    {
+      projectKey: 'antigravity-pulse',
+      projectName: 'antigravity-pulse',
+      workspaceUris: ['file:///workspace/antigravity-pulse'],
+      runningCount: tree1.activeNodeCount,
+      trees: [tree1],
+    },
+    {
+      projectKey: 'nebula-compiler',
+      projectName: 'nebula-compiler',
+      workspaceUris: ['file:///workspace/nebula-compiler'],
+      runningCount: tree2.activeNodeCount,
+      trees: [tree2, tree3],
+    },
+    {
+      projectKey: 'payments-ledger',
+      projectName: 'payments-ledger',
+      workspaceUris: ['file:///workspace/payments-ledger'],
+      runningCount: 0,
+      trees: [tree5],
+    },
+    {
+      projectKey: 'Workspace Unavailable',
+      projectName: 'Workspace Unavailable',
+      workspaceUris: [],
+      runningCount: 0,
+      trees: [tree4],
+    },
+  ];
+
+  const allNodes = projects.flatMap((p) => p.trees.flatMap((t) => t.nodes));
+  const runningNodes = allNodes.filter((n) => n.phase !== 'IDLE' && n.phase !== 'ERROR_OR_QUOTA');
+  const runningRoots = runningNodes.filter((n) => n.parentCascadeId === null).length;
+  const histMap = new Map();
+  for (const node of runningNodes) {
+    const key = node.servedModel.displayName;
+    const prev = histMap.get(key);
+    if (prev) {
+      prev.count += 1;
+    } else {
+      histMap.set(key, {
+        label: key,
+        tier: node.servedModel.tier,
+        count: 1,
+      });
+    }
+  }
+  const modelHistogram = [...histMap.values()].sort((a, b) => b.count - a.count);
+
+  const topQuotaBurners = [
+    {
+      rank: 1,
+      rootCascadeId: CIDS.root2,
+      title: root2.title,
+      projectName: 'nebula-compiler',
+      dominantModel: 'Gemini 4 Carbon (High)',
+      dominantTier: 'apex',
+      consumed5hPct: 4.82,
+      delta5hPct: 4.82,
+      totalTokens: 1_248_000,
+      lastActiveAt: nowIso,
+      isRunning: true,
+    },
+    {
+      rank: 2,
+      rootCascadeId: CIDS.root,
+      title: tree1.rootTitle,
+      projectName: 'antigravity-pulse',
+      dominantModel: 'Argon (Medium)',
+      dominantTier: 'workhorse',
+      consumed5hPct: 3.15,
+      delta5hPct: 3.15,
+      totalTokens: 842_500,
+      lastActiveAt: nowIso,
+      isRunning: true,
+    },
+    {
+      rank: 3,
+      rootCascadeId: CIDS.hist1,
+      title: hist1.title,
+      projectName: 'payments-ledger',
+      dominantModel: 'Gemini 4 Carbon (High)',
+      dominantTier: 'apex',
+      consumed5hPct: 1.94,
+      delta5hPct: 1.94,
+      totalTokens: 518_200,
+      lastActiveAt: hist1.lastModifiedTime,
+      isRunning: false,
+    },
+    {
+      rank: 4,
+      rootCascadeId: CIDS.root3,
+      title: root3.title,
+      projectName: 'Workspace Unavailable',
+      dominantModel: 'Orchestrator (Carbon)',
+      dominantTier: 'orchestrator',
+      consumed5hPct: 1.21,
+      delta5hPct: 1.21,
+      totalTokens: 312_400,
+      lastActiveAt: root3.lastModifiedTime,
+      isRunning: false,
+    },
+    {
+      rank: 5,
+      rootCascadeId: CIDS.hist2,
+      title: hist2.title,
+      projectName: 'nebula-compiler',
+      dominantModel: 'Gemini 3.5 Flash',
+      dominantTier: 'fast',
+      consumed5hPct: 0.74,
+      delta5hPct: 0.74,
+      totalTokens: 194_600,
+      lastActiveAt: hist2.lastModifiedTime,
+      isRunning: false,
+    },
+  ];
+
+  return {
+    hostConnected: true,
+    activeHeadline: {
+      runningRoots,
+      runningSubagents: Math.max(0, runningNodes.length - runningRoots),
+      totalRunningNodes: runningNodes.length,
+      modelHistogram,
+    },
+    projects,
+    topQuotaBurners,
+    quota: semantic.quota,
+  };
 }
 
 const args = process.argv.slice(2);
@@ -858,27 +1647,43 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/timeline') {
-    const semantic = buildScenarioSnapshot(
+    const rawCid = url.searchParams.get('conversationId')?.trim() || '';
+    if (rawCid && !UUID_REGEX.test(rawCid)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid conversationId UUID' }));
+      return;
+    }
+    const rawScope = url.searchParams.get('scope')?.trim() || '';
+    if (rawScope && rawScope !== 'conversation' && rawScope !== 'tree') {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid scope; expected conversation or tree' }));
+      return;
+    }
+    const clientEtag = url.searchParams.get('etag')?.trim() || '';
+    const semanticTimeline = buildScenarioTimeline(
       effectiveScenario,
-      liveStep,
       previewConfig,
-      null,
-      nowIso
+      rawCid || null,
+      rawScope || undefined
     );
+    const etag = computePreviewEtag(semanticTimeline);
     res.writeHead(200, { 'Content-Type': 'application/json' });
+    if (clientEtag && clientEtag === etag) {
+      res.end(JSON.stringify({ unchanged: true, etag }));
+      return;
+    }
     res.end(
       JSON.stringify({
-        etag: computePreviewEtag({ timeline: effectiveScenario, turns: [] }),
+        etag,
         generatedAt: nowIso,
-        rootCascadeId: semantic.rootCascadeId,
-        scope: 'tree',
-        turns: [],
+        ...semanticTimeline,
       })
     );
     return;
   }
 
   if (url.pathname === '/api/fleet') {
+    const clientEtag = url.searchParams.get('etag')?.trim() || '';
     const semantic = buildScenarioSnapshot(
       effectiveScenario,
       liveStep,
@@ -886,25 +1691,18 @@ const server = http.createServer((req, res) => {
       null,
       nowIso
     );
-    const runningNodes = semantic.treeNodes.filter(
-      (n) => n.phase !== 'IDLE' && n.phase !== 'ERROR_OR_QUOTA'
-    );
-    const runningRoots = runningNodes.filter((n) => n.parentCascadeId === null).length;
+    const fleetSemantic = buildScenarioFleet(effectiveScenario, semantic, PREVIEW_BASE_ISO);
+    const etag = computePreviewEtag(fleetSemantic);
     res.writeHead(200, { 'Content-Type': 'application/json' });
+    if (clientEtag && clientEtag === etag) {
+      res.end(JSON.stringify({ unchanged: true, etag }));
+      return;
+    }
     res.end(
       JSON.stringify({
-        etag: computePreviewEtag({ fleet: effectiveScenario, q: semantic.quota }),
+        etag,
         generatedAt: nowIso,
-        hostConnected: true,
-        activeHeadline: {
-          runningRoots,
-          runningSubagents: Math.max(0, runningNodes.length - runningRoots),
-          totalRunningNodes: runningNodes.length,
-          modelHistogram: [],
-        },
-        projects: [],
-        topQuotaBurners: [],
-        quota: semantic.quota,
+        ...fleetSemantic,
       })
     );
     return;

@@ -4,7 +4,7 @@
 > **Stage Goal**: Turn-by-Turn Invocation Flame `Timeline` Tab in `/hud` + Cross-Project Global Radar `Pulse Fleet` in `SIDEBAR` `/fleet`  
 > **Master Contract**: [`00_MASTER_IMPLEMENTATION_BLUEPRINT.md`](./00_MASTER_IMPLEMENTATION_BLUEPRINT.md) · [`docs/PRODUCT_DESIGN.md`](../PRODUCT_DESIGN.md) (§4.1.C, §4.3, §5.2, §6.2)  
 > **Companion Ledgers**: [`DECISION_LOG.md`](./DECISION_LOG.md) (`D-001`–`D-007`) · [`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md) (`L-001`–`L-007`)  
-> **Plan Status**: Drafted for MISSION I (`M1.2`) — Ready for `M1.3` Audit & MISSION II Execution
+> **Plan Status**: `[x] Completed` *(MISSION II Stage 2 `VERDICT: APPROVED` by `S2-QA` `b9fc90ea`)*
 
 ---
 
@@ -445,29 +445,32 @@ git status --short
 
 ## Implementation Status & Results (MISSION II Backfill)
 
-> *Populated strictly during MISSION II execution by `S2-A`, `S2-B`, and `S2-QA` with verbatim observed metrics and file links.*
+> *Populated at Stage 2 closeout following independent `S2-QA` (`b9fc90ea`) `VERDICT: APPROVED` (`0` Blocking, `4` Minor non-blocking observations).*
 
-- **Track `S2-A` Status**: `[ ] Pending`
-  - Files Delivered: _(to be filled)_
-  - Unit Test Evidence (`tests/unit/timeline-fleet.test.ts`): _(to be filled)_
-- **Track `S2-B` Status**: `[ ] Pending`
-  - Files Delivered: _(to be filled)_
-  - E2E & Preview Evidence (`tests/e2e/fleet-timeline.test.ts`, `scripts/preview-ui.mjs`): _(to be filled)_
-- **Dense Visual Verification (`browser` Subagent)**: `[ ] Pending`
-  - `VIS-01` (`/hud` Timeline `360×820` Light): _(to be filled)_
-  - `VIS-02` (`/hud` Timeline `360×820` Dark): _(to be filled)_
-  - `VIS-03` (`/fleet` `360×820` Light): _(to be filled)_
-  - `VIS-04` (`/fleet` `360×820` Dark): _(to be filled)_
-  - `VIS-05` (`/fleet` `1024×820` Light): _(to be filled)_
-  - `VIS-06` (`/fleet` `1024×820` Dark): _(to be filled)_
-- **Independent Audit (`S2-QA`) Verdict**: `[ ] Pending` — Report: `docs/plans/STAGE_2_AUDIT.md` · Commit SHA: _(to be filled)_
+- **Track `S2-A` Status**: `[x] Completed`
+  - Files Delivered: [`src/core/timeline-builder.ts`](../../src/core/timeline-builder.ts), [`src/core/fleet-builder.ts`](../../src/core/fleet-builder.ts), [`src/sidecar/telemetry-engine.ts`](../../src/sidecar/telemetry-engine.ts), [`src/sidecar/server.ts`](../../src/sidecar/server.ts), [`tests/unit/timeline-fleet.test.ts`](../../tests/unit/timeline-fleet.test.ts)
+  - Unit Test Evidence (`tests/unit/timeline-fleet.test.ts`): `11/11` tests passing across `3` suites (`core/timeline-builder`, `core/fleet-builder`, `sidecar/telemetry-engine & server`), verifying `L-001`–`L-003` formulas, `isOverthinkingTurn` boundaries, per-`cascadeId` chronological `routingChangedFromPrevTurn`, `maxIdleTreesPerProject = 5`, Top 5 Burners, `MAX_CONCURRENT_META_RPCS = 6`, `live-snapshot.json.fleet` sync, HTTP `400` `Response` (`L-007`), and `34`-byte ETag hits.
+- **Track `S2-B` Status**: `[x] Completed`
+  - Files Delivered: [`src/ui/fleet-view.ts`](../../src/ui/fleet-view.ts), [`src/ui/hud-view.ts`](../../src/ui/hud-view.ts), [`src/ui/state.ts`](../../src/ui/state.ts), [`sidecars/pulse_cockpit/styles.css`](../../sidecars/pulse_cockpit/styles.css), [`sidecars/pulse_cockpit/dist/server.mjs`](../../sidecars/pulse_cockpit/dist/server.mjs), [`sidecars/pulse_cockpit/dist/ui.js`](../../sidecars/pulse_cockpit/dist/ui.js), [`scripts/preview-ui.mjs`](../../scripts/preview-ui.mjs), [`tests/e2e/fleet-timeline.test.ts`](../../tests/e2e/fleet-timeline.test.ts) (while preserving frozen Stage 1 [`src/ui/main.ts`](../../src/ui/main.ts) and [`src/types/telemetry.ts`](../../src/types/telemetry.ts) unmodified).
+  - E2E & Preview Evidence (`tests/e2e/fleet-timeline.test.ts`, `scripts/preview-ui.mjs`): `3/3` E2E tests passing against real built `server.mjs`, `ui.js`, `styles.css`, and `preview-ui.mjs` (`dense`, `alert`, `idle` scenarios); full `npm test` passed `77/77` unit+contract+E2E tests across `21` suites (`2837.67ms`) + `2/2` sequential benchmarks (`0.153ms` JS / `40.598ms` OS median).
+- **Dense Visual Verification (`browser` Subagent)**: `[x] Completed` (`0` console/page errors, `scrollWidth <= clientWidth` across all checks)
+  - `VIS-01` (`/hud` Timeline `360×820` Light): `PASS` — 14 reverse-chronological turns, purple TTFT & cyan Streaming flame bars, external readouts, `Overthinking` & `Retried ×2` badges clean (also re-verified regression-free post-fix).
+  - `VIS-02` (`/hud` Timeline `360×820` Dark): `PASS` — Flexoki Dark polarity crisp; scope toggle (`14 turns` -> `6 turns`) verified clean.
+  - `VIS-03` (`/fleet` `360×820` Light): `PASS` — single-column stack (`334px` grid), headline/histogram wrapping, 4 projects, Top 5 Burners & footer clean (also re-verified regression-free post-fix).
+  - `VIS-04` (`/fleet` `360×820` Dark + drawer): `PASS` after CSS fix (`VIS-04-R`) — initial `R…`/`S…`/`Sw…` badge & model pill clipping resolved via 2-row drawer wrapping + `flex: 0 0 auto` (`L-016`); drawer stays open across `2600ms` polls; `[↗]` focus jump clean.
+  - `VIS-05` (`/fleet` `1024×820` Light): `PASS` after CSS fix (`VIS-05-R`) — 2-column CSS Grid (`561.8px` / `416.2px`), Top 5 Burners `Gemini 4 Carbon (High)` unclipped, 4 Global Quota cards crisp.
+  - `VIS-06` (`/fleet` `420×820` Dark `alert`): `PASS` after CSS fix (`VIS-06-R`) — unclipped Top 5 Burners + coral-red low-quota alert (`Gemini 5h: 14.2% (1h 18m)`); 2-column desktop grid covered in `VIS-05-R` and Dark polarity in `VIS-02`/`VIS-04-R`/`VIS-06-R`.
+- **Independent Audit (`S2-QA`) Verdict**: `[x] Completed` — **`VERDICT: APPROVED`** (`0` Blocking, `4` Minor non-blocking) — Report: [`STAGE_2_AUDIT.md`](./STAGE_2_AUDIT.md) · Commit SHA: `(backfill SHA in Stage 3)`
 
 ---
 
 ## Stage Retrospectives & Pitfalls Encountered (MISSION II Backfill)
 
-> *Populated upon Stage 2 completion. Any newly discovered host, SDK, CSS, or ETag quirks MUST also be appended to [`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md) (`L-008+`) and [`DECISION_LOG.md`](./DECISION_LOG.md) (`D-008+`).*
-
-- **What Worked Well**: _(to be filled in MISSION II)_
-- **Pitfalls / Edge Cases Hit**: _(to be filled in MISSION II)_
-- **New `L-*` / `D-*` Entries Logged**: _(to be filled in MISSION II)_
+- **What Worked Well**:
+  - Disjoint file ownership between `S2-A` (pure builders, `TelemetryEngine`, `server.ts`) and `S2-B` (`hud-view.ts`, `fleet-view.ts`, `state.ts`, `styles.css`, `preview-ui.mjs`) kept frozen Stage 1 seams (`src/ui/main.ts`, `src/types/telemetry.ts`) untouched with zero merge conflicts.
+  - Cold-boot metadata concurrency cap (`MAX_CONCURRENT_META_RPCS = 6`), `stepCount`-gated `GetCascadeTrajectoryGeneratorMetadata`, `RUNNING`-only `GetCascadeTrajectorySteps`, and volatile-field stripping yielded exact `34`-byte `UnchangedEtagResponse` hits and populated `live-snapshot.json.fleet` cleanly for Stage 3 consumers.
+  - Independent `S2-QA` (`b9fc90ea`) + live `browser` inspection caught real CSS narrow-drawer/burner truncation before Stage 2 closeout while confirming `77/77` unit+contract+E2E + `2/2` benchmark passes.
+- **Pitfalls / Edge Cases Hit**:
+  - **Drawer Kind Badge Crushing & Burner Pill Clipping (`L-016`)**: Stage 1's `@media (max-width: 420px)` `.pulse-node-kind { max-width: 72px }` rule and base `flex: 0 1 auto`, combined with cramped single-row drawer items and `140px` Top-5 Burner pill caps, crushed `Root`/`Subagent`/`Swarm` badges to `R…`/`S…`/`Sw…` in `vis04` and clipped `Gemini 4 Carbon (Hi…` in `vis05`/`vis06`. Resolved cleanly by wrapping `.pulse-fleet-drawer-item` into 2 compact rows, setting `.pulse-fleet-drawer-item .pulse-node-kind { flex: 0 0 auto; max-width: none; }` both base and inside `@media (max-width: 420px)`, and raising pill caps (`min(210px, 100%)` / `min(220px, 100%)`).
+  - **Non-Blocking Polish Items Documented in [`STAGE_2_AUDIT.md`](./STAGE_2_AUDIT.md)**: Idle `/fleet` poll interval (`2500ms` matching `/hud` vs `3000ms` plan note), `routingChangedFromPrevTurn` same-model badge displaying current `requestedLabel ➔ modelLabel` instead of previous served model, `compactModelLabel` vs full label asymmetry in Top 5 Burners, and harmless `preview-ui.mjs:1240` mock field `treeDeltaQuota5hPct` fallback.
+- **New `L-*` / `D-*` Entries Logged**: [`L-016`](./LESSONS_LEARNED.md#l-016-dense-flex-drawer-wrapping-badge-flex-0-0-auto--hidden-media-width-overrides) (`DECISION_LOG.md`: no new `D-*` entry required; zero contract changes beyond `D-001`–`D-009`).

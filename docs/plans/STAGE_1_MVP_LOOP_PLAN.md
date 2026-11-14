@@ -615,7 +615,7 @@ git status --short
 > *Populated at Stage 1 closeout following independent `S1-QA` (`48de57b4`) `VERDICT: APPROVED`.*
 
 - **Audit Verdict**: `VERDICT: APPROVED` ([`STAGE_1_AUDIT.md`](./STAGE_1_AUDIT.md))
-- **Commit SHA**: Created atomically on `main` at Stage 1 closeout; exact SHA backfilled into [`00_MASTER_IMPLEMENTATION_BLUEPRINT.md`](./00_MASTER_IMPLEMENTATION_BLUEPRINT.md) §6 during Stage 2 closeout.
+- **Commit SHA**: `bbf1a68` (committed atomically on `main` at Stage 1 closeout; backfilled into [`00_MASTER_IMPLEMENTATION_BLUEPRINT.md`](./00_MASTER_IMPLEMENTATION_BLUEPRINT.md) §6 during Stage 2 closeout).
 - **Track Completion**:
   - `S1-A`: `[x] Done` (`src/rpc/ls-client.ts`, `src/core/formatters.ts`, `src/core/model-catalog.ts`, `src/core/quota-calculator.ts`, `src/core/state-machine.ts`, `src/core/topology-builder.ts`, `src/core/etag.ts`, unit suites)
   - `S1-B`: `[x] Done` (`src/hook/hook-probe.ts`, `dist/hook-probe.cjs`, `tests/unit/hook-probe.test.ts`, `tests/benchmarks/hook-latency.test.ts`)

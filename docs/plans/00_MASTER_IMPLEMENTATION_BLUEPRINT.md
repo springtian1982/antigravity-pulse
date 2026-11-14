@@ -5,7 +5,7 @@
 > **Canonical PRD**: [`docs/PRODUCT_DESIGN.md`](../PRODUCT_DESIGN.md)  
 > **Companion Ledgers**: [`DECISION_LOG.md`](./DECISION_LOG.md) · [`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md)  
 > **Baseline Commit**: `87419f0` (`feat: initialize antigravity-pulse open-source repository and product design`)  
-> **Blueprint Status**: Active Master Contract (MISSION II Stage 0 `[x] Done` — `VERDICT: APPROVED`; Ready for Stage 1)
+> **Blueprint Status**: Active Master Contract (MISSION II Stage 0–2 `[x] Done` — Stage 2 `VERDICT: APPROVED`; Ready for Stage 3)
 
 ---
 
@@ -704,7 +704,7 @@ Every section, feature, metric, and guardrail from [`docs/PRODUCT_DESIGN.md`](..
 | **MISSION I — M1.2 (CTX)** | 3-Tier Repo Context Governance (`AGENTS.md`, `.agents/`) | Context Architect | `[x] Done` | `APPROVED` (M1.3) | `8ef2b63` | Repo contributor governance only (zero plugin prompt leak); `verify-context.mjs` PASS. |
 | **MISSION I — M1.3 (Auditor)** | MISSION I Consistency Audit, Remediation & Git Push | Referee / Lead | `[x] Done` | `VERDICT: APPROVED` | `8ef2b63` | M1.3 Re-Audit APPROVED: `agy-pele check . --strict-mermaid` (17 files, 12 diagrams, 0 errors/warnings), `verify-context.mjs` PASS, `agy plugin validate . --json` 0 errors. |
 | **MISSION II — Stage 0** | Engineering & Stitch Design Foundation | `S0-A`, `S0-B`, `S0-QA` | `[x] Done` | `VERDICT: APPROVED` | `5ca47d4` | `17/17` tests pass, `findings: []` on strict install validation, `D-008`, `L-011`–`L-012`, [`STAGE_0_AUDIT.md`](./STAGE_0_AUDIT.md). |
-| **MISSION II — Stage 1** | MVP Live Telemetry Loop (`/hud` + `<8ms` Hook + RPC) | `S1-A`, `S1-B`, `S1-C`, `S1-QA` | `[x] Done` | `VERDICT: APPROVED` | `(backfill SHA in Stage 2)` | `63/63` unit/contract/E2E + `2/2` benchmark (`0.198ms` JS / `42.692ms` OS median), `V1`–`V5` Flexoki Light/Dark QA pass, `D-009`, `L-013`–`L-015`, [`STAGE_1_AUDIT.md`](./STAGE_1_AUDIT.md). |
-| **MISSION II — Stage 2** | Timeline Flame Axis & `/fleet` Global Sidebar | `S2-A`, `S2-B`, `S2-QA` | `[ ] Pending` | — | — | Multi-project active radar & Top 5 Quota Burners. |
+| **MISSION II — Stage 1** | MVP Live Telemetry Loop (`/hud` + `<8ms` Hook + RPC) | `S1-A`, `S1-B`, `S1-C`, `S1-QA` | `[x] Done` | `VERDICT: APPROVED` | `bbf1a68` | `63/63` unit/contract/E2E + `2/2` benchmark (`0.198ms` JS / `42.692ms` OS median), `V1`–`V5` Flexoki Light/Dark QA pass, `D-009`, `L-013`–`L-015`, [`STAGE_1_AUDIT.md`](./STAGE_1_AUDIT.md). |
+| **MISSION II — Stage 2** | Timeline Flame Axis & `/fleet` Global Sidebar | `S2-A`, `S2-B`, `S2-QA` | `[x] Done` | `VERDICT: APPROVED` | `(backfill SHA in Stage 3)` | `77/77` unit/contract/E2E + `2/2` benchmark (`0.153ms` JS / `40.598ms` OS median), `VIS-01`–`VIS-06` + `VIS-04-R`/`VIS-05-R`/`VIS-06-R` Flexoki Light/Dark QA pass, `L-016`, [`STAGE_2_AUDIT.md`](./STAGE_2_AUDIT.md). |
 | **MISSION II — Stage 3** | `agy-pulse` CLI, MCP Server, `SKILL.md` & Packaging | `S3-A`, `S3-B`, `S3-QA` | `[ ] Pending` | — | — | Full 4-surface release + prebuilt `dist/` commit. |
 | **MISSION II — Docs Sync & Release** | Docs parity check, installed `agy plugin validate --strict`, push | `DOC-1` + Referee | `[ ] Pending` | — | — | All 28 RTM rows verified passing. |
