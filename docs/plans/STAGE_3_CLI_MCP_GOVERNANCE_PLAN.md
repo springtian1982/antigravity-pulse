@@ -578,37 +578,37 @@ console.log(out);
 
 > **Instructions for MISSION II Execution & `S3-QA`**: Backfill this section upon completing Stage 3 implementation and `S3-QA` sign-off. Do not alter planned specifications above without a logged `[CONTRACT_CHANGE_REQUEST]`.
 
-- **Execution Status**: `[ ] Pending` *(update to `[x] Completed` after `S3-QA` `PASS`)*
-- **Stage 3 Commit SHA**: `—`
-- **Audit Report**: `docs/plans/STAGE_3_AUDIT.md` (`—`)
+- **Execution Status**: `[x] Completed` *(MISSION II Stage 3 `S3-QA` `7b37586a` Re-Audit **`VERDICT: APPROVED`**, `0` Blocking, `0` Major)*
+- **Stage 3 Commit SHA**: `(backfill SHA in Docs Sync)`
+- **Audit Report**: [`STAGE_3_AUDIT.md`](./STAGE_3_AUDIT.md) (`VERDICT: APPROVED`)
 
 | Deliverable / Gate | Owner Track | Status | Verbatim Evidence Summary |
 | :--- | :--- | :--- | :--- |
-| `src/cli/snapshot-reader.ts`, `status-formatter.ts`, `top-tui.ts`, `main.ts` | `S3-A` | `[ ] Pending` | — |
-| `bin/agy-pulse`, `bin/agy-pulse.cmd`, `bin/agy-pulse.ps1` + `agy-node` fallback | `S3-A` | `[ ] Pending` | — |
-| `src/mcp/server.ts`, `embed-card.ts`, `skills/model-pulse/SKILL.md` | `S3-B` | `[ ] Pending` | — |
-| Git-tracked `dist/cli.cjs` & `dist/mcp.cjs` + SPDX MIT headers | `S3-A`/`S3-B` | `[ ] Pending` | — |
-| `tests/unit/cli*.test.ts`, `tests/unit/mcp*.test.ts`, `tests/e2e/full-system.test.ts` | `S3-A`/`S3-B`/`S3-QA` | `[ ] Pending` | — |
-| `npm run typecheck && npm run build && npm test` | `S3-QA` | `[ ] Pending` | — |
-| `browser` visual check (`pulse_status_card` Light & Dark + XSS check) | `S3-QA` | `[ ] Pending` | — |
-| `npm run install:global` + inode preservation + `~/.local/bin/agy-pulse` | `S3-QA` | `[ ] Pending` | — |
-| `agy plugin validate . --json` (`0` errors) & installed `--strict --json` (`findings: []`) | `S3-QA` | `[ ] Pending` | — |
-| Live host `agy-pulse` CLI & `dist/mcp.cjs` dual-framing stdio probes | `S3-QA` | `[ ] Pending` | — |
+| `src/cli/snapshot-reader.ts`, `status-formatter.ts`, `top-tui.ts`, `main.ts` | `S3-A` | `[x] Completed` | `status` (`waybar`/`tmux`/`json`/`text` + `--watch`), `top` (CJK `codePointDisplayWidth` + `$COLUMNS`/`$LINES` fallback), `config`, and `doctor` (`5/5` live host checks pass). |
+| `bin/agy-pulse`, `bin/agy-pulse.cmd`, `bin/agy-pulse.ps1` + `agy-node` fallback | `S3-A` | `[x] Completed` | Missing-bundle exit `127` guards, symlink resolution, and isolated `PATH` `agy-node` fallback verified in `cli-commands.test.ts` & `full-system.test.ts`. |
+| `src/mcp/server.ts`, `embed-card.ts`, `skills/model-pulse/SKILL.md` | `S3-B` | `[x] Completed` | Dual-framing (`Content-Length` UTF-8 + `NDJSON`) JSON-RPC server, 3 MCP tools, XSS-safe Flexoki Light/Dark `<agent-embed>` cards, and schema-locked `SKILL.md`. |
+| Git-tracked `dist/cli.cjs` & `dist/mcp.cjs` + SPDX MIT headers | `S3-A`/`S3-B` | `[x] Completed` | All 5 bundles (`dist/cli.cjs` `167K`, `dist/mcp.cjs` `138K`, `dist/hook-probe.cjs` `34K` zero `node:crypto`, `server.mjs` `138K`, `ui.js` `97K`) carry SPDX MIT headers. |
+| `tests/unit/cli*.test.ts`, `tests/unit/mcp*.test.ts`, `tests/e2e/full-system.test.ts` | `S3-A`/`S3-B`/`S3-QA` | `[x] Completed` | `31` new Stage 3 unit & 4-surface E2E tests across `7` files + contract/catalog/benchmark regression locks (`108` main + `2` benchmarks). |
+| `npm run typecheck && npm run build && npm test` | `S3-QA` | `[x] Completed` | `typecheck` exit `0`; `108/108` main across `28` suites (`3345.73ms`, `0` skipped) + `2/2` calibrated benchmarks (`0.196ms` JS / `45.839ms` OS, `bare=34.973ms`, `delta=9.420ms`). |
+| `browser` visual check (`pulse_status_card` Light & Dark + XSS check) | `S3-QA` | `[x] Completed` | Inspector `1571a09f` (`NODE_COUNT=3`): `640×520` Light (`step_2_shot_1.png`), `640×520` Dark (`step_4_shot_1.png`), `440×520` Narrow Dark (`step_6_shot_1.png`), literal XSS escaping, crisp 2-tier layout. |
+| `npm run install:global` + inode preservation + `~/.local/bin/agy-pulse` | `S3-QA` | `[x] Completed` | `19` files installed atomically (`INODE_BEFORE=17988221 == INODE_AFTER=17988221`), `~/.local/bin/agy-pulse` symlinked, `ZERO_PLUGIN_RULES_OK`, `INSTALLED_SKILL_SYNC_OK`. |
+| `agy plugin validate . --json` (`0` errors) & installed `--strict --json` (`findings: []`) | `S3-QA` | `[x] Completed` | Repo `.` `0` errors (`rules: 0`, expected `AGENTS.md` workspace notice only); installed `--strict --json` returned `findings: []`; `verify-context --strict-paths` `PASS`; `agy-pele check . --strict-mermaid` `0 error(s), 0 warning(s)`. |
+| Live host `agy-pulse` CLI & `dist/mcp.cjs` dual-framing stdio probes | `S3-QA` | `[x] Completed` | Live `doctor` `5/5`, `waybar`, `tmux`, `text`, `top` (`80×24` `SEP_WIDTHS=[80,80]` & `120×36` `SEP_WIDTHS=[120,120]`), NDJSON (`MCP_EMBED_TAG_OK=true`), and `Content-Length` (`1005B`) probes all pass. |
 
 ---
 
 ## Stage Retrospectives & Pitfalls Encountered (MISSION II Backfill)
 
-> **Instructions for MISSION II Execution & `S3-QA`**: Record honest implementation reflections, unexpected host/tooling quirks, and any new `DECISION_LOG.md` (`D-*`) or `LESSONS_LEARNED.md` (`L-*`) entries discovered during Stage 3.
+> *Recorded at Stage 3 closeout following `S3-QA` (`7b37586a`) Re-Audit `VERDICT: APPROVED` (`0` Blocking, `0` Major).*
 
 ### Track `S3-A` Reflections (`agy-pulse` CLI & Launchers)
-- **What went well**: `(pending execution)`
-- **Pitfalls / Edge cases discovered**: `(pending execution)`
+- **What went well**: Unified `snapshot-reader.ts` cleanly reused `ReadOnlyLsClient`, `buildTopologyGraph`, and `normalizeQuotaSummary` so `status` (`waybar`/`tmux`/`json`/`text`/`--watch`), `top`, `config`, and `doctor` stay consistent with the Sidecar state bus while degrading gracefully offline.
+- **Pitfalls / Edge cases discovered**: CJK cascade titles broke naive `.length` alignment and piped non-TTY invocations lacked PTY column counts; fixed with East Asian/emoji `codePointDisplayWidth` and POSIX PTY -> `$COLUMNS`/`$LINES` fallback ([`L-018`](./LESSONS_LEARNED.md#l-018-east-asiancjk-wide-glyph-terminal-display-width--non-tty-columnslines-fallback)).
 
 ### Track `S3-B` Reflections (MCP Server, Cards & `SKILL.md`)
-- **What went well**: `(pending execution)`
-- **Pitfalls / Edge cases discovered**: `(pending execution)`
+- **What went well**: `McpFrameDecoder` cleanly handles split multi-byte UTF-8 `Content-Length` chunks and `NDJSON` streams in a single zero-dep server, and `embed-card.ts` delivers self-contained Flexoki Light/Dark `<agent-embed>` cards with strict UUID/XSS guards.
+- **Pitfalls / Edge cases discovered**: Initial `SKILL.md` drifted from `ComputeBudgetAdvice` field names (caught by `S3-QA` Blocking 1 and locked in `manifest-contracts.test.ts` per [`L-021`](./LESSONS_LEARNED.md#l-021-automated-skillmd-schema-key-contract-guards--unmapped-host-model_placeholder_-routing-trust)), and `440px` narrow cards required `inline-block` `.pill` ellipsis plus responsive 2-tier rows ([`L-019`](./LESSONS_LEARNED.md#l-019-agent-embed-pill-inline-block-ellipsis--responsive-2-tier-flex-rows-vs-fixed--tables)).
 
 ### Referee `S3-QA` Reflections & Ledger Updates
-- **Audit observations (visual check, live host CLI/MCP, validator)**: `(pending execution)`
-- **New `DECISION_LOG.md` (`D-*`) / `LESSONS_LEARNED.md` (`L-*`) entries logged**: `(pending execution)`
+- **Audit observations (visual check, live host CLI/MCP, validator)**: Initial `S3-QA` pass caught `SKILL.md` schema drift, missing live `top`/`.embedTag` probes, unmapped host `MODEL_PLACEHOLDER_M669`/`M322` routing false positives, `--watch` E2E polling races ([`L-017`](./LESSONS_LEARNED.md#l-017-e2e---watch-race-against-live-sidecar-polling--ambient-antigravity_-env-isolation)), and `node:crypto` OpenSSL cold-init penalty in `hook-probe.cjs` ([`D-010`](./DECISION_LOG.md#d-010-contract_change_request-openssl-free-hook-bundle--paired-bare-v8-baseline-calibration-for-metric-2-refines-d-004--d-009)). All findings were verified fixed on re-audit (`108/108` main + `2/2` benchmarks, `3` browser card screenshots, `findings: []`, live `doctor` `5/5`, live CLI & dual-framing MCP probes).
+- **New `DECISION_LOG.md` (`D-*`) / `LESSONS_LEARNED.md` (`L-*`) entries logged**: [`D-010`](./DECISION_LOG.md#d-010-contract_change_request-openssl-free-hook-bundle--paired-bare-v8-baseline-calibration-for-metric-2-refines-d-004--d-009), [`L-017`](./LESSONS_LEARNED.md#l-017-e2e---watch-race-against-live-sidecar-polling--ambient-antigravity_-env-isolation)–[`L-021`](./LESSONS_LEARNED.md#l-021-automated-skillmd-schema-key-contract-guards--unmapped-host-model_placeholder_-routing-trust).

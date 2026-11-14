@@ -12,6 +12,11 @@ done
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
 CLI_ENTRY="$SCRIPT_DIR/../dist/cli.cjs"
 
+if [ ! -f "$CLI_ENTRY" ]; then
+  echo "agy-pulse: CLI bundle not found at $CLI_ENTRY" >&2
+  exit 127
+fi
+
 if command -v node >/dev/null 2>&1; then
   exec node "$CLI_ENTRY" "$@"
 fi

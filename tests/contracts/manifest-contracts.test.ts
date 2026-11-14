@@ -136,6 +136,26 @@ describe('package.json & plugin manifest contracts', () => {
     assert.match(skillText, /^---\n[\s\S]*name:\s*model-pulse[\s\S]*\n---/);
     assert.ok(skillText.includes('sidecar://antigravity-pulse/pulse_cockpit/hud'));
     assert.ok(Buffer.byteLength(skillText, 'utf8') < 18000);
+    assert.ok(skillText.includes('recommendedSubagentModel'));
+    assert.ok(skillText.includes('reason'));
+    assert.ok(skillText.includes('warnings'));
+    assert.ok(skillText.includes('embedTag'));
+    assert.ok(skillText.includes('sidecarPill'));
+    assert.equal(
+      skillText.includes('recommendedTier'),
+      false,
+      'Deprecated field name recommendedTier must not appear in SKILL.md'
+    );
+    assert.equal(
+      skillText.includes('quotaPressure'),
+      false,
+      'Nonexistent field quotaPressure must not appear in SKILL.md'
+    );
+    assert.equal(
+      skillText.includes('swarmDensity'),
+      false,
+      'Nonexistent field swarmDensity must not appear in SKILL.md'
+    );
   });
 
   it('verifies bin/ launchers (permissions, line endings, agy-node fallback) and 5 prebuilt dist bundles', () => {
@@ -215,24 +235,35 @@ describe('runtime smoke tests: hook-probe, cli, mcp & inode-preserving installer
     }
   });
 
-  it('cli.cjs and mcp.cjs Stage 0 entry scaffolds respond cleanly', () => {
+  it('cli.cjs and mcp.cjs Stage 3 entrypoints respond with production contracts', () => {
     const stateDir = makeTempDir('pulse-cli-state-');
-    const env = { ...process.env, ANTIGRAVITY_PULSE_STATE_DIR: stateDir };
+    const env = {
+      ...process.env,
+      ANTIGRAVITY_PULSE_STATE_DIR: stateDir,
+      ANTIGRAVITY_LS_ADDRESS: '',
+      ANTIGRAVITY_CSRF_TOKEN: '',
+      ANTIGRAVITY_CONVERSATION_ID: '',
+    };
 
     const ver = execFileSync(process.execPath, [path.join(REPO_ROOT, 'dist/cli.cjs'), '--version'], {
       encoding: 'utf8',
       env,
     }).trim();
-    assert.equal(ver, '0.1.0');
+    assert.equal(ver, 'antigravity-pulse v0.1.0');
 
     const statusRaw = execFileSync(
       process.execPath,
       [path.join(REPO_ROOT, 'dist/cli.cjs'), 'status', '--format', 'json'],
       { encoding: 'utf8', env }
     );
-    const statusJson = JSON.parse(statusRaw) as { ok: boolean; connected: boolean };
-    assert.equal(statusJson.ok, true);
-    assert.equal(statusJson.connected, false);
+    const statusJson = JSON.parse(statusRaw) as {
+      schemaVersion: number;
+      hostConnected: boolean;
+      statusClass: string;
+    };
+    assert.equal(statusJson.schemaVersion, 1);
+    assert.equal(statusJson.hostConnected, false);
+    assert.equal(statusJson.statusClass, 'disconnected');
 
     const mcpOut = execFileSync(process.execPath, [path.join(REPO_ROOT, 'dist/mcp.cjs')], {
       input: [
@@ -251,7 +282,11 @@ describe('runtime smoke tests: hook-probe, cli, mcp & inode-preserving installer
     assert.equal(responses.length, 3);
     assert.equal(responses[0].id, 1);
     assert.deepEqual(responses[1].result, {});
-    assert.deepEqual(responses[2].result, { tools: [] });
+    const tools = (responses[2].result as { tools?: Array<{ name: string }> })?.tools ?? [];
+    assert.deepEqual(
+      tools.map((t) => t.name),
+      ['pulse_status_card', 'pulse_get_compute_budget', 'pulse_set_preference']
+    );
   });
 
   it('install.mjs preserves directory inode across reinstalls, passes strict agy validation, and patches installed-only on --force-patch', () => {

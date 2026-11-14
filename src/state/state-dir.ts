@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import {
   appendFileSync,
   chmodSync,
@@ -22,6 +21,7 @@ import type {
 
 export const UUID_REGEX = /^[0-9a-f-]{36}$/i;
 export const RING_MAX_BYTES = 512 * 1024;
+let atomicTmpSeq = 0;
 
 export interface StateDirPaths {
   stateDir: string;
@@ -138,7 +138,8 @@ export function writeJsonAtomic(filePath: string, data: unknown): void {
     mkdirSync(parentDir, { recursive: true, mode: 0o700 });
     tryChmod(parentDir, 0o700);
   }
-  const suffix = `${process.pid}.${Date.now()}.${randomBytes(4).toString('hex')}`;
+  atomicTmpSeq = (atomicTmpSeq + 1) >>> 0;
+  const suffix = `${process.pid}.${process.hrtime.bigint().toString(36)}.${atomicTmpSeq.toString(36)}`;
   const tmpPath = `${filePath}.${suffix}.tmp`;
   const serialized = `${JSON.stringify(data, null, 2)}\n`;
   try {

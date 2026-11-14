@@ -236,7 +236,7 @@ describe('Dual-metric honest hook latency benchmarks (D-004, RTM-24)', () => {
     assert.ok(p95Ms <= 8.0, `In-process p95 ${p95Ms.toFixed(3)}ms exceeded 8.0ms`);
   });
 
-  it('Metric 2: OS fork+exec dist/hook-probe.cjs x10 stays <= 50.0ms median and exits 0', () => {
+  it('Metric 2: OS fork+exec dist/hook-probe.cjs x10 stays within D-004/D-010 calibrated budget (<= max(50ms, bareNode+20ms), delta <= 20ms, <= 100ms) and exits 0', () => {
     const distHookProbe = path.join(REPO_ROOT, 'dist/hook-probe.cjs');
     assert.equal(existsSync(distHookProbe), true, `Missing prebuilt bundle: ${distHookProbe}`);
 
@@ -245,8 +245,23 @@ describe('Dual-metric honest hook latency benchmarks (D-004, RTM-24)', () => {
     seedRealisticStateDir(stateDir, cid);
     const env = { ...process.env, ANTIGRAVITY_PULSE_STATE_DIR: stateDir };
 
+    // Unmeasured warmup pair so OS page cache settles after parallel suites exit
+    spawnSync(process.execPath, ['-e', ''], { encoding: 'utf8', env });
+    spawnSync(process.execPath, [distHookProbe], {
+      input: '{"hookEventName":"PreToolUse"}',
+      encoding: 'utf8',
+      env,
+    });
+
+    const bareDurationsMs: number[] = [];
     const durationsMs: number[] = [];
+    const pairedDeltasMs: number[] = [];
     for (let i = 1; i <= 10; i += 1) {
+      const tBare0 = process.hrtime.bigint();
+      const bareProc = spawnSync(process.execPath, ['-e', ''], { encoding: 'utf8', env });
+      const bareElapsedMs = Number(process.hrtime.bigint() - tBare0) / 1_000_000;
+      assert.equal(bareProc.status, 0, `bare node exited ${String(bareProc.status)}: ${bareProc.stderr}`);
+
       const isPreTool = i % 2 === 1;
       const stdinPayload = isPreTool
         ? JSON.stringify({
@@ -271,7 +286,9 @@ describe('Dual-metric honest hook latency benchmarks (D-004, RTM-24)', () => {
         env,
       });
       const elapsedMs = Number(process.hrtime.bigint() - t0) / 1_000_000;
+      bareDurationsMs.push(bareElapsedMs);
       durationsMs.push(elapsedMs);
+      pairedDeltasMs.push(elapsedMs - bareElapsedMs);
 
       assert.equal(proc.status, 0, `hook-probe.cjs exited ${String(proc.status)}: ${proc.stderr}`);
       const parsed = JSON.parse(proc.stdout.trim()) as Record<string, unknown>;
@@ -284,14 +301,30 @@ describe('Dual-metric honest hook latency benchmarks (D-004, RTM-24)', () => {
       }
     }
 
-    const sorted = [...durationsMs].sort((a, b) => a - b);
-    const medianMs = percentile(sorted, 0.5);
-    const p95Ms = percentile(sorted, 0.95);
-    const maxMs = sorted[sorted.length - 1];
+    const sortedBare = [...bareDurationsMs].sort((a, b) => a - b);
+    const sortedProbes = [...durationsMs].sort((a, b) => a - b);
+    const sortedDeltas = [...pairedDeltasMs].sort((a, b) => a - b);
+    const bareMedianMs = percentile(sortedBare, 0.5);
+    const medianMs = percentile(sortedProbes, 0.5);
+    const pairedDeltaMedianMs = percentile(sortedDeltas, 0.5);
+    const p95Ms = percentile(sortedProbes, 0.95);
+    const maxMs = sortedProbes[sortedProbes.length - 1];
+    const effectiveCapMs = Math.max(50.0, bareMedianMs + 20.0);
     console.log(
-      `[bench] Metric 2 OS fork+exec (n=${durationsMs.length}): median=${medianMs.toFixed(3)}ms p95=${p95Ms.toFixed(3)}ms max=${maxMs.toFixed(3)}ms`
+      `[bench] Metric 2 OS fork+exec (n=${durationsMs.length}): bare_median=${bareMedianMs.toFixed(3)}ms probe_median=${medianMs.toFixed(3)}ms paired_delta_median=${pairedDeltaMedianMs.toFixed(3)}ms effective_cap=${effectiveCapMs.toFixed(3)}ms p95=${p95Ms.toFixed(3)}ms max=${maxMs.toFixed(3)}ms`
     );
 
-    assert.ok(medianMs <= 50.0, `OS fork+exec median ${medianMs.toFixed(3)}ms exceeded 50.0ms`);
+    assert.ok(
+      pairedDeltaMedianMs <= 20.0,
+      `Hook probe delta median ${pairedDeltaMedianMs.toFixed(3)}ms over bare Node exceeded 20.0ms`
+    );
+    assert.ok(
+      medianMs <= effectiveCapMs,
+      `OS fork+exec median ${medianMs.toFixed(3)}ms exceeded calibrated cap ${effectiveCapMs.toFixed(3)}ms (bare=${bareMedianMs.toFixed(3)}ms)`
+    );
+    assert.ok(
+      medianMs <= 100.0,
+      `OS fork+exec median ${medianMs.toFixed(3)}ms exceeded hard 100.0ms ceiling`
+    );
   });
 });

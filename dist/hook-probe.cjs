@@ -101,12 +101,12 @@ function formatInlineTurnStamp(input) {
 }
 
 // src/state/state-dir.ts
-var import_node_crypto = require("node:crypto");
 var import_node_fs = require("node:fs");
 var import_node_os = __toESM(require("node:os"), 1);
 var import_node_path = __toESM(require("node:path"), 1);
 var UUID_REGEX = /^[0-9a-f-]{36}$/i;
 var RING_MAX_BYTES = 512 * 1024;
+var atomicTmpSeq = 0;
 function tryChmod(targetPath, mode) {
   if (process.platform === "win32") return;
   try {
@@ -149,7 +149,8 @@ function writeJsonAtomic(filePath, data) {
     (0, import_node_fs.mkdirSync)(parentDir, { recursive: true, mode: 448 });
     tryChmod(parentDir, 448);
   }
-  const suffix = `${process.pid}.${Date.now()}.${(0, import_node_crypto.randomBytes)(4).toString("hex")}`;
+  atomicTmpSeq = atomicTmpSeq + 1 >>> 0;
+  const suffix = `${process.pid}.${process.hrtime.bigint().toString(36)}.${atomicTmpSeq.toString(36)}`;
   const tmpPath = `${filePath}.${suffix}.tmp`;
   const serialized = `${JSON.stringify(data, null, 2)}
 `;

@@ -89,6 +89,16 @@ describe('core/model-catalog — placeholders, 5-tier classification, context & 
       decodeModelDescriptor('MODEL_PLACEHOLDER_M667', emptyCatalog)?.tier,
       'orchestrator'
     );
+    assert.equal(
+      decodeModelDescriptor('MODEL_PLACEHOLDER_M669', emptyCatalog)?.label,
+      'Orchestrator (Plan-Execute)'
+    );
+    assert.equal(
+      decodeModelDescriptor('MODEL_PLACEHOLDER_M681', emptyCatalog)?.label,
+      'Orchestrator (Argon)'
+    );
+    assert.equal(decodeModelDescriptor('MODEL_PLACEHOLDER_M322', emptyCatalog)?.tier, 'fast');
+    assert.equal(decodeModelDescriptor('MODEL_PLACEHOLDER_M999', emptyCatalog), null);
     assert.equal(decodeModelDescriptor('inherit', emptyCatalog)?.isOrchestrator, true);
     assert.equal(decodeModelDescriptor('pro', emptyCatalog)?.family, 'gemini');
     assert.equal(decodeModelDescriptor('flash', emptyCatalog)?.tier, 'fast');
@@ -282,5 +292,94 @@ describe('core/model-catalog — placeholders, 5-tier classification, context & 
     });
     assert.equal(pending.routingStatus, 'unknown');
     assert.equal(pending.servedModel.displayName, 'Gemini 4 Argon (Medium)');
+
+    // 7. live internal placeholders omitted from clientModelConfigs (M669, M681, M322)
+    //    and unmapped future placeholders (M999)
+    const routedM669 = reconcileRequestedVsServed({
+      catalog,
+      requestedModelRaw: 'MODEL_PLACEHOLDER_M669',
+      latestGenMeta: {
+        chatModel: {
+          model: 'MODEL_PLACEHOLDER_M322',
+          modelDisplayName: 'Gemini Flash',
+          responseModel: 'gemini-flash-worker-agy',
+          retryInfos: [{ attempt: 1 }],
+        },
+      },
+    });
+    assert.equal(routedM669.requestedModel.displayName, 'Orchestrator (Plan-Execute)');
+    assert.equal(routedM669.routingStatus, 'routed');
+
+    const routedM681 = reconcileRequestedVsServed({
+      catalog,
+      requestedModelRaw: 'MODEL_PLACEHOLDER_M681',
+      latestGenMeta: {
+        chatModel: {
+          modelDisplayName: 'Gemini 4 Argon (Medium)',
+          responseModel: 'gemini-4-argon',
+          retryInfos: [{ attempt: 1 }],
+        },
+      },
+    });
+    assert.equal(routedM681.requestedModel.displayName, 'Orchestrator (Argon)');
+    assert.equal(routedM681.routingStatus, 'routed');
+
+    const matchedM322 = reconcileRequestedVsServed({
+      catalog,
+      requestedModelRaw: 'MODEL_PLACEHOLDER_M322',
+      latestGenMeta: {
+        chatModel: {
+          modelDisplayName: 'Gemini Flash',
+          responseModel: 'gemini-3.8-flash',
+          retryInfos: [{ attempt: 1 }],
+        },
+      },
+    });
+    assert.equal(matchedM322.requestedModel.displayName, 'Gemini Flash');
+    assert.equal(matchedM322.routingStatus, 'matched');
+
+    const fallbackM322 = reconcileRequestedVsServed({
+      catalog,
+      requestedModelRaw: 'MODEL_PLACEHOLDER_M322',
+      latestGenMeta: {
+        chatModel: {
+          modelDisplayName: 'Gemini 4 Argon (Medium)',
+          responseModel: 'gemini-4-argon',
+          retryInfos: [{ attempt: 1 }],
+        },
+      },
+    });
+    assert.equal(fallbackM322.routingStatus, 'mismatch_or_fallback');
+
+    assert.equal(decodeModelDescriptor('MODEL_PLACEHOLDER_M999', catalog), null);
+    const routedUnmappedM999 = reconcileRequestedVsServed({
+      catalog,
+      requestedModelRaw: 'MODEL_PLACEHOLDER_M999',
+      latestGenMeta: {
+        chatModel: {
+          modelDisplayName: 'Gemini 3.8 Flash',
+          responseModel: 'gemini-3.8-flash',
+          retryInfos: [{ attempt: 1 }],
+        },
+      },
+    });
+    assert.equal(routedUnmappedM999.routingStatus, 'routed');
+
+    const matchedUnmappedM999 = reconcileRequestedVsServed({
+      catalog,
+      requestedModelRaw: 'MODEL_PLACEHOLDER_M999',
+      latestGenMeta: {
+        chatModel: {
+          model: 'MODEL_PLACEHOLDER_M999',
+          modelDisplayName: 'Future Model',
+          responseModel: 'future-model',
+          retryInfos: [{ attempt: 1 }],
+        },
+      },
+    });
+    assert.equal(matchedUnmappedM999.routingStatus, 'matched');
+
+    // Preserve strict fallback detection for catalog-known non-orchestrator models
+    assert.equal(mismatchModel.routingStatus, 'mismatch_or_fallback');
   });
 });

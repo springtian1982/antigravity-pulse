@@ -2,6 +2,11 @@
 setlocal
 set "CLI_ENTRY=%~dp0..\dist\cli.cjs"
 
+if not exist "%CLI_ENTRY%" (
+  echo agy-pulse: CLI bundle not found at "%CLI_ENTRY%" 1>&2
+  exit /b 127
+)
+
 where node >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
   node "%CLI_ENTRY%" %*
@@ -14,12 +19,12 @@ if %ERRORLEVEL% EQU 0 (
   exit /b %ERRORLEVEL%
 )
 
-if exist "%APPDATA%\Antigravity\bin\agy-node.exe" (
+if defined APPDATA if exist "%APPDATA%\Antigravity\bin\agy-node.exe" (
   "%APPDATA%\Antigravity\bin\agy-node.exe" "%CLI_ENTRY%" %*
   exit /b %ERRORLEVEL%
 )
 
-if exist "%LOCALAPPDATA%\Programs\Antigravity\bin\agy-node.exe" (
+if defined LOCALAPPDATA if exist "%LOCALAPPDATA%\Programs\Antigravity\bin\agy-node.exe" (
   "%LOCALAPPDATA%\Programs\Antigravity\bin\agy-node.exe" "%CLI_ENTRY%" %*
   exit /b %ERRORLEVEL%
 )

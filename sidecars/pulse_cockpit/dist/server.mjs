@@ -7,7 +7,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Response, SidecarApp } from "sidecar_sdk";
 
 // src/state/state-dir.ts
-import { randomBytes } from "node:crypto";
 import {
   appendFileSync,
   chmodSync,
@@ -23,6 +22,7 @@ import os from "node:os";
 import path from "node:path";
 var UUID_REGEX = /^[0-9a-f-]{36}$/i;
 var RING_MAX_BYTES = 512 * 1024;
+var atomicTmpSeq = 0;
 function tryChmod(targetPath, mode) {
   if (process.platform === "win32") return;
   try {
@@ -65,7 +65,8 @@ function writeJsonAtomic(filePath, data) {
     mkdirSync(parentDir, { recursive: true, mode: 448 });
     tryChmod(parentDir, 448);
   }
-  const suffix = `${process.pid}.${Date.now()}.${randomBytes(4).toString("hex")}`;
+  atomicTmpSeq = atomicTmpSeq + 1 >>> 0;
+  const suffix = `${process.pid}.${process.hrtime.bigint().toString(36)}.${atomicTmpSeq.toString(36)}`;
   const tmpPath = `${filePath}.${suffix}.tmp`;
   const serialized = `${JSON.stringify(data, null, 2)}
 `;
@@ -542,6 +543,33 @@ var BUILTIN_ALIASES = {
     tier: "orchestrator",
     isOrchestrator: true
   },
+  MODEL_PLACEHOLDER_M669: {
+    modelEnum: "MODEL_PLACEHOLDER_M669",
+    modelId: "gemini-plan-execute-orchestrator",
+    label: "Orchestrator (Plan-Execute)",
+    family: "auto",
+    effortTier: "auto",
+    tier: "orchestrator",
+    isOrchestrator: true
+  },
+  MODEL_PLACEHOLDER_M681: {
+    modelEnum: "MODEL_PLACEHOLDER_M681",
+    modelId: "gemini-argon-orchestrator",
+    label: "Orchestrator (Argon)",
+    family: "auto",
+    effortTier: "auto",
+    tier: "orchestrator",
+    isOrchestrator: true
+  },
+  MODEL_PLACEHOLDER_M322: {
+    modelEnum: "MODEL_PLACEHOLDER_M322",
+    modelId: "gemini-flash",
+    label: "Gemini Flash",
+    family: "gemini",
+    effortTier: "flash",
+    tier: "fast",
+    isOrchestrator: false
+  },
   inherit: {
     modelEnum: "inherit",
     modelId: "inherit",
@@ -727,6 +755,9 @@ function decodeModelDescriptor(raw, catalog) {
       return aliasEntry;
     }
   }
+  if (/^MODEL_PLACEHOLDER_/i.test(key)) {
+    return null;
+  }
   const family = normalizeModelFamily(key);
   const effortTier = normalizeEffortTier(key);
   const isOrchestrator = family === "auto" || /orchestrator|\bauto\b/i.test(key);
@@ -850,7 +881,9 @@ function reconcileRequestedVsServed(params) {
     const isDynamicAlias = requestedModel.raw === "unknown" || decodedReq?.isOrchestrator === true || reqLower === "auto" || reqLower === "inherit" || reqLower === "pro" || /orchestrator/i.test(requestedModel.displayName);
     if (isDynamicAlias) {
       routingStatus = "routed";
-    } else if (reqLower === "flash" || reqLower === "flash_lite") {
+    } else if (!decodedReq && /^MODEL_PLACEHOLDER_/i.test(requestedModel.raw)) {
+      routingStatus = servedModel.modelEnum.toLowerCase() === reqLower || chatModel?.model?.trim()?.toLowerCase() === reqLower ? "matched" : "routed";
+    } else if (reqLower === "flash" || reqLower === "flash_lite" || reqLower === "model_placeholder_m322" && decodedReq?.tier === "fast") {
       routingStatus = servedModel.tier === "fast" ? "matched" : "mismatch_or_fallback";
     } else {
       const reqCanonical = canonicalBaseModel(decodedReq?.modelId || requestedModel.displayName);

@@ -460,7 +460,7 @@ git status --short
   - `VIS-04` (`/fleet` `360×820` Dark + drawer): `PASS` after CSS fix (`VIS-04-R`) — initial `R…`/`S…`/`Sw…` badge & model pill clipping resolved via 2-row drawer wrapping + `flex: 0 0 auto` (`L-016`); drawer stays open across `2600ms` polls; `[↗]` focus jump clean.
   - `VIS-05` (`/fleet` `1024×820` Light): `PASS` after CSS fix (`VIS-05-R`) — 2-column CSS Grid (`561.8px` / `416.2px`), Top 5 Burners `Gemini 4 Carbon (High)` unclipped, 4 Global Quota cards crisp.
   - `VIS-06` (`/fleet` `420×820` Dark `alert`): `PASS` after CSS fix (`VIS-06-R`) — unclipped Top 5 Burners + coral-red low-quota alert (`Gemini 5h: 14.2% (1h 18m)`); 2-column desktop grid covered in `VIS-05-R` and Dark polarity in `VIS-02`/`VIS-04-R`/`VIS-06-R`.
-- **Independent Audit (`S2-QA`) Verdict**: `[x] Completed` — **`VERDICT: APPROVED`** (`0` Blocking, `4` Minor non-blocking) — Report: [`STAGE_2_AUDIT.md`](./STAGE_2_AUDIT.md) · Commit SHA: `(backfill SHA in Stage 3)`
+- **Independent Audit (`S2-QA`) Verdict**: `[x] Completed` — **`VERDICT: APPROVED`** (`0` Blocking, `4` Minor non-blocking) — Report: [`STAGE_2_AUDIT.md`](./STAGE_2_AUDIT.md) · Commit SHA: `71a621f` (committed atomically on `main` at Stage 2 closeout; backfilled during Stage 3 closeout).
 
 ---
 

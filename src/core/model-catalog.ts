@@ -47,6 +47,33 @@ const BUILTIN_ALIASES: Record<string, ModelConfigEntry> = {
     tier: 'orchestrator',
     isOrchestrator: true,
   },
+  MODEL_PLACEHOLDER_M669: {
+    modelEnum: 'MODEL_PLACEHOLDER_M669',
+    modelId: 'gemini-plan-execute-orchestrator',
+    label: 'Orchestrator (Plan-Execute)',
+    family: 'auto',
+    effortTier: 'auto',
+    tier: 'orchestrator',
+    isOrchestrator: true,
+  },
+  MODEL_PLACEHOLDER_M681: {
+    modelEnum: 'MODEL_PLACEHOLDER_M681',
+    modelId: 'gemini-argon-orchestrator',
+    label: 'Orchestrator (Argon)',
+    family: 'auto',
+    effortTier: 'auto',
+    tier: 'orchestrator',
+    isOrchestrator: true,
+  },
+  MODEL_PLACEHOLDER_M322: {
+    modelEnum: 'MODEL_PLACEHOLDER_M322',
+    modelId: 'gemini-flash',
+    label: 'Gemini Flash',
+    family: 'gemini',
+    effortTier: 'flash',
+    tier: 'fast',
+    isOrchestrator: false,
+  },
   inherit: {
     modelEnum: 'inherit',
     modelId: 'inherit',
@@ -286,6 +313,10 @@ export function decodeModelDescriptor(
     }
   }
 
+  if (/^MODEL_PLACEHOLDER_/i.test(key)) {
+    return null;
+  }
+
   const family = normalizeModelFamily(key);
   const effortTier = normalizeEffortTier(key);
   const isOrchestrator = family === 'auto' || /orchestrator|\bauto\b/i.test(key);
@@ -486,7 +517,17 @@ export function reconcileRequestedVsServed(
 
     if (isDynamicAlias) {
       routingStatus = 'routed';
-    } else if (reqLower === 'flash' || reqLower === 'flash_lite') {
+    } else if (!decodedReq && /^MODEL_PLACEHOLDER_/i.test(requestedModel.raw)) {
+      routingStatus =
+        servedModel.modelEnum.toLowerCase() === reqLower ||
+        chatModel?.model?.trim()?.toLowerCase() === reqLower
+          ? 'matched'
+          : 'routed';
+    } else if (
+      reqLower === 'flash' ||
+      reqLower === 'flash_lite' ||
+      (reqLower === 'model_placeholder_m322' && decodedReq?.tier === 'fast')
+    ) {
       routingStatus = servedModel.tier === 'fast' ? 'matched' : 'mismatch_or_fallback';
     } else {
       const reqCanonical = canonicalBaseModel(decodedReq?.modelId || requestedModel.displayName);

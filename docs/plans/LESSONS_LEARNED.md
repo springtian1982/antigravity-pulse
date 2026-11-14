@@ -200,3 +200,58 @@
   2. Give narrow (`360px`) drawer items explicit 2-row flex wrapping (`flex-wrap: wrap` on `.pulse-fleet-drawer-item`, `flex: 1 1 180px` on `.pulse-fleet-drawer-left`, `flex: 0 0 auto; margin-inline-start: auto` on `.pulse-fleet-drawer-right`, and `max-width: min(210px, 100%)` on `.pulse-fleet-drawer-right .pulse-pill`) so titles, kind badges, model pills, and `[↗]` jump buttons stay legible with zero horizontal overflow.
   3. Audit `.pulse-pill` `max-width` caps in wrapping metadata rows (e.g. `.pulse-burner-meta .pulse-pill { max-width: min(220px, 100%); }` and `.pulse-burner-meta .pulse-node-kind { max-width: min(160px, 100%); }`) across both `< 640px` and `>= 640px` breakpoints so full model names display without premature `…` clipping.
 - **Verified By**: [`sidecars/pulse_cockpit/styles.css`](../../sidecars/pulse_cockpit/styles.css) lines 1051–1060, 1254–1264, 1731–1785, 1845–1857; [`src/ui/fleet-view.ts`](../../src/ui/fleet-view.ts) lines 163–199, 314–345; `VIS-04-R`, `VIS-05-R`, and `VIS-06-R` post-fix browser recheck screenshots (`0` console/page errors, `scrollWidth === clientWidth`).
+
+---
+
+## `L-017`: E2E `--watch` Race Against Live Sidecar Polling & Ambient `ANTIGRAVITY_*` Env Isolation
+
+- **Symptom**: In full-system E2E runs inside an active Antigravity IDE agent shell, leaving a spawned background `pulse_cockpit` Sidecar polling concurrently while mutating `live-snapshot.json` for `--watch` assertions created file-write overwrite races; meanwhile inherited `ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CSRF_TOKEN`, `ANTIGRAVITY_CONVERSATION_ID`, and `CLAUDE_PLUGIN_DATA` env vars leaked live host state into isolated CLI/MCP tests.
+- **Root Cause**: `fs.watch` in `agy-pulse status --watch` reacts to any rewrite of `live-snapshot.json`, so an active Sidecar poll loop running against a mock LS immediately overwrote manual `writeJsonAtomic` test mutations; simultaneously, `execFileSync`/`spawn` inherit parent `process.env` unless Antigravity host variables are scrubbed explicitly.
+- **Actionable Prevention Rule**:
+  1. Scrub `ANTIGRAVITY_*`, `PULSE_*`, and `CLAUDE_PLUGIN_DATA` via a shared `isolatedEnv()` helper (or `beforeEach`/`afterEach` env restoration) in all CLI, MCP, and E2E child-process tests.
+  2. Stop background Sidecar child processes cleanly (`await stopChild(sidecarChild)`) before performing deterministic `--watch` disk-mutation steps, and wrap spawned child processes in `try/finally` cleanup blocks.
+- **Verified By**: [`tests/e2e/full-system.test.ts`](../../tests/e2e/full-system.test.ts) lines 339–347, 611, 678–680, 855–858; [`tests/unit/cli-top.test.ts`](../../tests/unit/cli-top.test.ts) lines 27–55; [`tests/contracts/manifest-contracts.test.ts`](../../tests/contracts/manifest-contracts.test.ts) lines 240–246.
+
+---
+
+## `L-018`: East Asian/CJK Wide Glyph Terminal Display Width & Non-TTY `COLUMNS`/`LINES` Fallback
+
+- **Symptom**: Rendering `agy-pulse top --once` with Chinese cascade titles (e.g., `产品设计分阶段实施规划`) or emojis caused table columns and separator rules to overflow or drift horizontally when measured via `String.length`, and piped/non-TTY execution where `stdout.columns` is `undefined` ignored caller `COLUMNS`/`LINES` dimensions.
+- **Root Cause**: CJK ideographs and wide emojis occupy 2 terminal display cells while JavaScript `string.length` counts UTF-16 code units (1 per CJK char, 2 per astral surrogate), and `process.stdout.columns` is `undefined` outside interactive PTYs.
+- **Actionable Prevention Rule**:
+  1. Compute padding and ANSI-aware truncation exclusively using East Asian/emoji `codePointDisplayWidth` / `displayWidth` cell widths (`0` for combining/control/ZWJ, `2` for CJK/fullwidth/emoji ranges, `1` otherwise) inside [`src/cli/top-tui.ts`](../../src/cli/top-tui.ts).
+  2. Resolve terminal dimensions via `stdout.columns ?? parsePositiveEnvInt(process.env.COLUMNS) ?? 100` and `stdout.rows ?? parsePositiveEnvInt(process.env.LINES) ?? 24`, keeping POSIX PTY precedence while supporting deterministic non-TTY rendering.
+- **Verified By**: [`src/cli/top-tui.ts`](../../src/cli/top-tui.ts) lines 75–224, 703–704, 726–727; [`tests/unit/cli-top.test.ts`](../../tests/unit/cli-top.test.ts) lines 456–642; live `top --once --no-color` captures (`SEP_WIDTHS=[80,80]` and `[120,120]`).
+
+---
+
+## `L-019`: `<agent-embed>` `.pill` `inline-block` Ellipsis & Responsive 2-Tier Flex Rows vs Fixed `%` Tables
+
+- **Symptom**: Inside narrow `440px` `<agent-embed>` status cards, fixed-percentage single-row tables and `inline-flex` `.pill` badges clipped `CTX%`/`ΔQuota%` metrics and alert pills (`Fallback`, `Retry ×1`) or failed to emit clean `…` truncation on long model badges.
+- **Root Cause**: `text-overflow: ellipsis` does not apply reliably on `inline-flex` elements without inner block spans, and multi-column fixed `%` tables collapse at narrow chat-embed widths (`440px`).
+- **Actionable Prevention Rule**:
+  1. Style standalone `.pill` elements with `display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;` (and `.pill-model { max-width: 165px }`).
+  2. Render each topology node as a 2-tier responsive flex card (`.tree-row-main` wrapping `.node-cell` + `.node-badges` with `flex: 0 0 auto` badges, paired with `.tree-row-sub` carrying full model & last-tool detail) plus a `2×2` `@media (max-width: 460px)` fuel strip.
+- **Verified By**: [`src/mcp/embed-card.ts`](../../src/mcp/embed-card.ts) lines 276–299, 470–666; [`tests/unit/mcp-embed-card.test.ts`](../../tests/unit/mcp-embed-card.test.ts) lines 275–343; browser inspection `1571a09f` (`640×520` Light/Dark & `440×520` Narrow Dark).
+
+---
+
+## `L-020`: Cold-Spawn `node:crypto` OpenSSL Penalty (`~8.3ms`) & Paired Bare-V8 Baseline Calibration
+
+- **Symptom**: `dist/hook-probe.cjs` eagerly loaded `node:crypto` solely for `.tmp` suffix uniqueness in `writeJsonAtomic`, adding `~8.3ms` OpenSSL cold-init latency on every hook invocation; concurrently, under host CPU contention (`load average: 4.1–5.2`), bare `node -e ""` (`v24.21.0`) spawn latency rose to `43.4–54.1ms`, causing an uncalibrated `<= 50.0ms` OS wall-clock ceiling on `Metric 2` to fail despite `~12–13ms` marginal hook runtime cost.
+- **Root Cause**: Importing `node:crypto` inside shared state-bus code pulls OpenSSL initialization into hot-path CLI hooks, while comparing absolute `fork+exec` wall-clock against a static `50ms` constant conflates host kernel/V8 startup load with hook code efficiency.
+- **Actionable Prevention Rule**:
+  1. Keep `dist/hook-probe.cjs` free of `node:crypto` (`writeJsonAtomic` uses monotonic `${process.pid}.${process.hrtime.bigint().toString(36)}.${atomicTmpSeq.toString(36)}` in [`src/state/state-dir.ts`](../../src/state/state-dir.ts)), verified by `! grep -q "node:crypto" dist/hook-probe.cjs`.
+  2. Calibrate `Metric 2` via 1 warmup pair + 10 paired `bare node -e ''` vs `dist/hook-probe.cjs` spawns enforcing all three invariants simultaneously (`D-010`): `pairedDeltaMedianMs <= 20.0`, `probeMedianMs <= Math.max(50.0, bareMedianMs + 20.0)`, and `probeMedianMs <= 100.0`.
+- **Verified By**: [`src/state/state-dir.ts`](../../src/state/state-dir.ts) lines 24 & 141–143; [`dist/hook-probe.cjs`](../../dist/hook-probe.cjs) (`34K`, `NO_CRYPTO_IN_HOOK_OK`); [`tests/benchmarks/hook-latency.test.ts`](../../tests/benchmarks/hook-latency.test.ts) lines 239–329; [`D-010`](./DECISION_LOG.md#d-010-contract_change_request-openssl-free-hook-bundle--paired-bare-v8-baseline-calibration-for-metric-2-refines-d-004--d-009).
+
+---
+
+## `L-021`: Automated `SKILL.md` Schema-Key Contract Guards & Unmapped Host `MODEL_PLACEHOLDER_*` Routing Trust
+
+- **Symptom**: Initial `S3-QA` audit caught two silent semantic drifts: (1) `skills/model-pulse/SKILL.md` referenced stale/invented field names (`recommendedTier`, `quotaPressure`, `swarmDensity`) instead of `ComputeBudgetAdvice` / `pulse_status_card` keys (`recommendedSubagentModel`, `reason`, `warnings`, `embedTag`, `sidecarPill`), and (2) live Antigravity cascades using internal placeholders omitted from `clientModelConfigs` (`MODEL_PLACEHOLDER_M669`, `MODEL_PLACEHOLDER_M681`, `MODEL_PLACEHOLDER_M322`) or future unmapped placeholders (`MODEL_PLACEHOLDER_*`) triggered false `mismatch_or_fallback` warnings.
+- **Root Cause**: `SKILL.md` lacked automated schema-key regression tests, while `decodeModelDescriptor()` previously synthesized literal fallback descriptors for unmapped `MODEL_PLACEHOLDER_*` strings so `reconcileRequestedVsServed()` compared `"model_placeholder_m669"` against `"gemini-flash-worker-agy"` and flagged a mismatch.
+- **Actionable Prevention Rule**:
+  1. Lock distributed skill docs against frozen [`src/types/telemetry.ts`](../../src/types/telemetry.ts) & MCP response keys in [`tests/contracts/manifest-contracts.test.ts`](../../tests/contracts/manifest-contracts.test.ts) (explicitly asserting required keys and banning deprecated aliases).
+  2. Map known live host placeholders (`M669`, `M681`, `M322`) in `BUILTIN_ALIASES`, return `null` from `decodeModelDescriptor()` for unknown `^MODEL_PLACEHOLDER_` enums, and resolve unmapped `MODEL_PLACEHOLDER_*` requested models cleanly to `'matched'` or `'routed'` in `reconcileRequestedVsServed()`.
+- **Verified By**: [`skills/model-pulse/SKILL.md`](../../skills/model-pulse/SKILL.md) lines 27–58; [`tests/contracts/manifest-contracts.test.ts`](../../tests/contracts/manifest-contracts.test.ts) lines 139–158; [`src/core/model-catalog.ts`](../../src/core/model-catalog.ts) lines 50–76, 316–318, 520–531; [`tests/unit/core-catalog.test.ts`](../../tests/unit/core-catalog.test.ts) lines 92–102, 296–383.
