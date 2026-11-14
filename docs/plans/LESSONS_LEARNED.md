@@ -1,7 +1,7 @@
 # Antigravity Pulse — Engineering Lessons Learned (`LESSONS_LEARNED.md`)
 
 > **Mandatory Pre-Read Protocol**: Every planning, implementation, and referee subagent working on `antigravity-pulse` MUST read this entire file **before** designing or editing code. Each lesson records a real empirically observed host or SDK pitfall using the format: **Symptom -> Root Cause -> Actionable Prevention Rule -> Verified By**.
-> Append new entries (`L-008`, ...) immediately whenever any test failure, protocol quirk, or integration trap is discovered.
+> Append new entries (`L-011`, ...) immediately whenever any test failure, protocol quirk, or integration trap is discovered.
 
 ---
 
@@ -60,25 +60,63 @@
 
 ---
 
-## `L-006`: `hooks.json` Asymmetric Grouping & `PreToolUse` `{"decision":"allow"}` Contract
+## `L-006`: `hooks.json` `map[string]JSONHookSpec` Wrapper, Asymmetric Grouping & `PreToolUse` `{"decision":"allow"}` Contract
 
-- **Symptom**: Tool hooks fail validation or silently fail to register, OR `PreToolUse` blocks/stalls tool execution when returning `{}` instead of `{"decision":"allow"}`.
-- **Root Cause**: Antigravity's `hooks.json` schema is intentionally asymmetric across hook categories, and `PreToolUse` checks a decision field on stdout:
-  - `PreToolUse` and `PostToolUse` require **grouped** entries: `[{ matcher: "*", hooks: [{ type: "command", command: "node ./dist/hook-probe.cjs", timeout: 5 }] }]`.
-  - `PreInvocation`, `PostInvocation`, and `Stop` require **flat** arrays: `[{ type: "command", command: "node ./dist/hook-probe.cjs", timeout: 5 }]`.
-  - `PreToolUse` expects stdout `{"decision":"allow"}`; `PostToolUse` and `Stop` expect `{}`; `PreInvocation` and `PostInvocation` expect `{}` or `{"injectSteps":[{"systemMessage":{"systemMessage":"","metadata":{"user_markdown":"..."}}}]}`.
+- **Symptom**: Tool hooks fail validation or silently fail to register when event names sit at the top level of `hooks.json` without a named hook-group key, OR `PreToolUse` blocks/stalls tool execution when returning `{}` instead of `{"decision":"allow"}`.
+- **Root Cause**:
+  1. Direct inspection of the `agy` binary (`jsonhook.JSONHookSpec` / `map[string]...JSONHookSpec`) and reference plugin `/home/springtian/.gemini/config/plugins/data-agent-kit-plugin/hooks.json` (`"dak-setup-sync"`, `"dak-telemetry"`) confirms `hooks.json` unmarshals into a **top-level `map[string]JSONHookSpec` named hook-group wrapper** (`{ "pulse-telemetry": { "PreToolUse": [...], ... } }`), NOT bare event keys at JSON root.
+  2. Antigravity's `JSONHookSpec` schema is intentionally asymmetric across hook categories, and `PreToolUse` checks a decision field on stdout:
+     - `PreToolUse` and `PostToolUse` require **grouped** entries: `[{ matcher: "*", hooks: [{ type: "command", command: "node ./dist/hook-probe.cjs", timeout: 5 }] }]`.
+     - `PreInvocation`, `PostInvocation`, and `Stop` require **flat** arrays: `[{ type: "command", command: "node ./dist/hook-probe.cjs", timeout: 5 }]`.
+     - `PreToolUse` expects stdout `{"decision":"allow"}`; `PostToolUse` and `Stop` expect `{}`; `PreInvocation` and `PostInvocation` expect `{}` or `{"injectSteps":[{"systemMessage":{"systemMessage":"","metadata":{"user_markdown":"..."}}}]}`.
 - **Actionable Prevention Rule**:
-  1. Lock the exact asymmetric structure in `hooks.json` and enforce it via `tests/contracts/manifest-contracts.test.ts` + `agy plugin validate --strict`.
+  1. Wrap all hook event keys under `"pulse-telemetry"` (`map[string]JSONHookSpec`), lock the exact asymmetric structure in `hooks.json`, and enforce it via `tests/contracts/manifest-contracts.test.ts` + `agy plugin validate . --json` (`"hooks": 1`, zero `hooks.json` findings) and `agy plugin validate <installed-dir> --strict --json`.
   2. Dispatch stdout responses by `hookEventName` in `src/hook/hook-probe.ts` so `PreToolUse` **always** emits `{"decision":"allow"}` even in error-recovery fallback paths, while `PostToolUse`/`Stop` emit `{}`.
   3. Keep `hooks.json` pointing to `"node ./dist/hook-probe.cjs"` in git, and have `scripts/install.mjs` patch the installed copy only if `node` is missing from `PATH` (falling back to `agy-node`).
-- **Verified By**: Empirically verified host fact (`hooks.json` contract); Stage 0 manifest contract test & Stage 1 hook stdout matrix tests.
+- **Verified By**: Empirically verified against `/home/springtian/.local/bin/agy` (`1.5.8` `jsonhook.JSONHookSpec` symbols) and `/home/springtian/.gemini/config/plugins/data-agent-kit-plugin/hooks.json`; Stage 0 manifest contract test & Stage 1 hook stdout matrix tests.
 
 ---
 
-## `L-007`: `SidecarApp.page()` Defaults Non-`.js` Routes to `text/html` (Use `Response` for CSS & CSP)
+## `L-007`: `SidecarApp.page()` Defaults Non-`.js` Routes to `text/html` & `SidecarApp.api()` Maps Thrown Errors to HTTP `500` (Use `Response`)
 
-- **Symptom**: Registering `app.page('/styles.css', () => cssText)` causes `SidecarApp` to serve `/styles.css` with `Content-Type: text/html`, which Chromium refuses to apply under `X-Content-Type-Options: nosniff` / strict stylesheet MIME rules.
-- **Root Cause**: Direct inspection of `/home/springtian/.gemini/antigravity/lib/node_modules/sidecar_sdk/index.mjs` (lines 152–155) confirms `SidecarApp.run()` only checks `url.pathname.endsWith('.js')` to return `application/javascript` and defaults every other plain-string `page()` handler to `text/html`, while skipping `Response` headers when plain strings are returned.
+- **Symptom**: Registering `app.page('/styles.css', () => cssText)` causes `SidecarApp` to serve `/styles.css` with `Content-Type: text/html` (rejected by Chromium under strict stylesheet MIME rules), AND throwing validation errors inside `app.api(...)` handlers returns HTTP `500` instead of HTTP `400`.
+- **Root Cause**: Direct inspection of `/home/springtian/.gemini/antigravity/lib/node_modules/sidecar_sdk/index.mjs`:
+  1. `SidecarApp.page()` (lines 145–158) honors `content instanceof Response`, otherwise checks only `url.pathname.endsWith('.js')` to return `application/javascript` and defaults every other plain-string handler to `text/html` without custom headers.
+  2. `SidecarApp.api()` (lines 180–192) honors `Response` (or `{ contentType, body, status }`) to emit custom status codes such as `400`, whereas any exception thrown inside an `api()` handler falls into `catch (err)` at lines 189–192 and unconditionally writes HTTP `500` with `{"error": err.message}`.
 - **Actionable Prevention Rule**:
   1. Always import `Response` from `sidecar_sdk` in `src/sidecar/server.ts` and wrap `/styles.css` (`text/css; charset=utf-8`), `/dist/ui.js` (`application/javascript; charset=utf-8`), and HTML pages (`text/html; charset=utf-8` + strict CSP headers) in `new Response(body, { contentType, headers })`.
-- **Verified By**: Direct source inspection of `sidecar_sdk/index.mjs` lines 145–158; Stage 1 Sidecar HTTP MIME & CSP header E2E test.
+  2. Inside `SidecarApp.api()` handlers, **NEVER** `throw` for client validation failures (invalid `conversationId` UUID, invalid `scope`, malformed `POST /api/config` patch); explicitly return `new Response(JSON.stringify({ error }), { status: 400, contentType: 'application/json' })`.
+- **Verified By**: Direct source inspection of `/home/springtian/.gemini/antigravity/lib/node_modules/sidecar_sdk/index.mjs` lines 145–192; Stage 0/1/2 Sidecar HTTP MIME, CSP, and `400` validation E2E tests.
+
+---
+
+## `L-008`: `agy plugin validate . --strict` Flags Contributor `AGENTS.md` at Repo Root (`D-007`)
+
+- **Symptom**: Running `agy plugin validate . --strict --json` in the source repository root exits non-zero (`Error: validation failed in strict mode: 1 warning`) reporting `AGENTS.md`: `"never loaded: plugins load rules only from rules/. Move it to rules/AGENTS.md"`, even when all plugin manifests are valid.
+- **Root Cause**: Per Decision `D-007`, repository contributor guidance `AGENTS.md` stays at the repo root and MUST NOT be placed in a plugin `rules/` folder (otherwise Antigravity would inject `always_on` tokens into every user session). Because `agy plugin validate .` treats the working directory as a plugin root, it emits a single warning on the unshipped root `AGENTS.md`, which `--strict` promotes to failure.
+- **Actionable Prevention Rule**:
+  1. NEVER move contributor `AGENTS.md` into `rules/` or add a plugin-root `rules/` folder (`D-007` non-negotiable invariant).
+  2. Validate the **source repository root** using `agy plugin validate . --json` and assert `0` errors, `components.rules === 0`, and that only the expected `AGENTS.md` warning appears.
+  3. Run `agy plugin validate ~/.gemini/config/plugins/antigravity-pulse --strict --json` against the **staged or globally installed** plugin bundle (where `scripts/install.mjs` omits `AGENTS.md` and `.agents/`), requiring exit `0` with `"findings": []`.
+- **Verified By**: Direct execution of `agy plugin validate . --json` and `agy plugin validate . --strict --json` with `/home/springtian/.local/bin/agy` (`1.5.8`); `STAGE_0_FOUNDATION_PLAN.md` §5.2 & `STAGE_3_CLI_MCP_GOVERNANCE_PLAN.md` §8.3.
+
+---
+
+## `L-009`: `tsconfig.json` Including `"scripts/**/*.mjs"` Requires `"allowJs": true, "checkJs": false` (or Exclusion)
+
+- **Symptom**: `tsconfig.json` includes `"scripts/**/*.mjs"` alongside `"src/**/*.ts"` and `"tests/**/*.ts"` without `"allowJs": true`, which can cause `tsc --noEmit` to reject or skip `.mjs` inputs in the program graph.
+- **Root Cause**: Baseline `tsconfig.json` sets `strict: true` and `noEmit: true` with `"include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.mjs"]`, omitting `"allowJs"` and `"checkJs"`. TypeScript does not include `.mjs`/`.js` files smoothly unless `"allowJs": true` is configured (with `"checkJs": false` to avoid noisy JS diagnostics on zero-dep Node build/install scripts), or `.mjs` scripts are excluded from `"include"`.
+- **Actionable Prevention Rule**:
+  1. In `Stage 0` (`S0-A`), update `tsconfig.json` cleanly (add `"allowJs": true, "checkJs": false` or exclude `"scripts/**/*.mjs"` if strictly checking `.ts` sources only) and verify `npm run typecheck` (`tsc --noEmit`) exits `0` cleanly.
+- **Verified By**: Inspection of repo `tsconfig.json` lines 1–15 and `STAGE_0_FOUNDATION_PLAN.md` §3.1 (`3. tsconfig.json`); verified during `Stage 0` `S0-A` / `S0-QA`.
+
+---
+
+## `L-010`: `scripts/build-tests.mjs` Must Flatten `tests/<subpath>/<name>.test.ts` to `.test-dist/<subpath>--<name>.test.cjs`
+
+- **Symptom**: Keeping compiled test bundles in nested `.test-dist/unit/`, `.test-dist/contracts/`, `.test-dist/benchmarks/`, and `.test-dist/e2e/` subdirectories causes `package.json`'s `"test"` command (`node --test .test-dist/*.test.cjs`) to skip every test file.
+- **Root Cause**: `package.json` executes `npm run build && node scripts/build-tests.mjs && node --test .test-dist/*.test.cjs`, whose single-level `*` wildcard only matches direct children of `.test-dist/`.
+- **Actionable Prevention Rule**:
+  1. `scripts/build-tests.mjs` MUST recursively discover all `tests/**/*.test.ts` files and flatten each relative path into `.test-dist/<subpath>--<name>.test.cjs` (e.g., `unit--state-dir.test.cjs`, `contracts--manifest-contracts.test.cjs`, `benchmarks--hook-latency.test.cjs`, `e2e--hud-loop.test.cjs`).
+  2. Preserve `package.json`'s `.test-dist/*.test.cjs` glob unchanged so `npm test` discovers all four test categories consistently across Linux and Windows.
+- **Verified By**: Repo `package.json` line 49 (`"test"` script) & `STAGE_0_FOUNDATION_PLAN.md` §3.5(3).

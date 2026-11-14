@@ -5,7 +5,7 @@
 > **Canonical PRD**: [`docs/PRODUCT_DESIGN.md`](../PRODUCT_DESIGN.md)  
 > **Companion Ledgers**: [`DECISION_LOG.md`](./DECISION_LOG.md) · [`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md)  
 > **Baseline Commit**: `87419f0` (`feat: initialize antigravity-pulse open-source repository and product design`)  
-> **Blueprint Status**: Active Master Contract (MISSION I — Step M1.1)
+> **Blueprint Status**: Active Master Contract (MISSION I — Step M1.3 `VERDICT: APPROVED`; Ready for MISSION II Stage 0)
 
 ---
 
@@ -21,7 +21,7 @@ flowchart LR
     S1["Stage 1: MVP Telemetry Loop<br/>LS Connect-RPC + Topology Builder + State Machine,<br/>hook-probe.cjs &lt;8ms + smart user_markdown,<br/>pulse_cockpit /hud AUX_PANE + Fuel Bar"]
     S2["Stage 2: Deep Observability &amp; Fleet<br/>Timeline Tab TTFT vs Streaming &amp; Thinking Ratio,<br/>pulse_cockpit /fleet SIDEBAR + Top 5 Burners"]
     S3["Stage 3: CLI, MCP Governance &amp; Packaging<br/>agy-pulse top/status/config + bin shims,<br/>MCP server + SKILL.md, git-tracked dist + final QA"]
-    SYNC["Post-Stage Docs Sync &amp; Release Audit<br/>README/docs parity, agy-pele strict-mermaid,<br/>agy plugin validate --strict, full test suite"]
+    SYNC["Post-Stage Docs Sync &amp; Release Audit<br/>README/docs parity, agy-pele strict-mermaid,<br/>installed agy plugin validate --strict, full tests"]
 
     S0 --> S1
     S1 --> S2
@@ -96,13 +96,14 @@ flowchart LR
    - `~/.gemini/antigravity/brain/<cid>/.system_generated/swarm/members.json`: `{ title?: string, members: Record<memberName, { conversation_id, role, desired_state, desired_model, applied_model, workspace_mode, phase, wake_mode, killed, model }> }` (`members` is an object map, NOT an array; `L-005`).
    - Correlate `customMetadata.parent_cascade_id` and `root_cascade_id` (plus optional read-only `file:conversations/<cid>.db?mode=ro` fallback only if needed).
 4. **Hooks Contract & Honest Latency (`D-004`, `L-006`)**:
+   - Antigravity's `hooks.json` loader unmarshals into `map[string]JSONHookSpec` (verified against `agy` binary & `data-agent-kit-plugin/hooks.json`), so all event keys MUST be nested under the top-level `"pulse-telemetry"` named hook-group wrapper (`{ "pulse-telemetry": { "PreToolUse": [...], ... } }`).
    - `PreToolUse` and `PostToolUse` MUST use grouped `{ matcher: "*", hooks: [{ type: "command", command: "node ./dist/hook-probe.cjs", timeout: 5 }] }`.
    - `PreInvocation`, `PostInvocation`, and `Stop` MUST use flat arrays `[{ type: "command", command: "node ./dist/hook-probe.cjs", timeout: 5 }]`.
    - Stdout contracts: `PreToolUse` -> `{"decision":"allow"}`; `PostToolUse` & `Stop` -> `{}`; `PreInvocation` / `PostInvocation` -> `{}` or `{"injectSteps":[{"systemMessage":{"systemMessage":"","metadata":{"user_markdown":"..."}}}]}` with turn-key dedup.
    - Latency honesty: On Linux Node v24.21.0, OS `fork+exec` V8 startup alone is ~25–32ms before JS line 1, while in-process JS handler execution (`process.hrtime.bigint()`) is `< 5ms` (`<= 8ms` target). Verification gates assert BOTH: `in-process JS <= 8ms` AND `OS wall-clock <= 50ms` with zero network I/O.
 5. **Cross-Platform `node` vs `agy-node` Execution**:
    - Git-tracked `hooks.json` uses `"node ./dist/hook-probe.cjs"` for zero extra shell-hop overhead and clean `agy plugin validate`.
-   - `bin/agy-pulse` (POSIX `sh`) and `bin/agy-pulse.cmd` (Windows) resolve `node` on `PATH` and automatically fall back to Antigravity's bundled `agy-node` / `agy-node.exe`.
+   - `bin/agy-pulse` (POSIX `sh`), `bin/agy-pulse.cmd` (Windows Batch), and `bin/agy-pulse.ps1` (Windows PowerShell helper) resolve `node` on `PATH` and automatically fall back to Antigravity's bundled `agy-node` / `agy-node.exe`.
    - During `scripts/install.mjs`, if system `node` is missing from `PATH`, the installer atomically patches the *installed* `~/.gemini/config/plugins/antigravity-pulse/hooks.json` copy to invoke `"\"<resolved-node-or-agy-node>\" ./dist/hook-probe.cjs"` while keeping the source repository clean.
 
 ---
@@ -118,17 +119,18 @@ antigravity-pulse/                          # Git repository root
 ├── LICENSE                                 # MIT License (Copyright (c) 2026 springtian)
 ├── THIRD_PARTY_NOTICES.md                  # Flexoki & icon notices
 ├── README.md                               # Distributed & repo root README
-├── package.json                            # Scripts (build, typecheck, test, install:global) & files allowlist
-├── tsconfig.json                           # Strict TypeScript config (ES2022, bundler, noEmit)
-├── .gitignore                              # Excludes node_modules/, .test-dist/, *.tgz, *.tsbuildinfo (NOT dist/)
+├── package.json                            # Scripts (build, typecheck, test, install:global, verify:context, preview) & files allowlist
+├── tsconfig.json                           # Strict TypeScript config (ES2022, bundler, allowJs:true, checkJs:false, noEmit)
+├── .gitignore                              # Excludes node_modules/, .test-dist/, *.tgz, *.tsbuildinfo, .stitch/exports/ (NOT dist/)
 ├── plugin.json                             # [Plugin Root] Manifest (name, displayName, logo, suggestedPrompts)
 ├── mcp_config.json                         # [Plugin Root] Registers MCP server `antigravity-pulse` -> dist/mcp.cjs
-├── hooks.json                              # [Plugin Root] Grouped PreToolUse/PostToolUse + Flat Pre/PostInvocation/Stop
+├── hooks.json                              # [Plugin Root] "pulse-telemetry" JSONHookSpec map (grouped ToolUse + flat Invocation/Stop)
 ├── assets/
 │   └── logo.svg                            # [Plugin] 128x128 10% padding light/dark adaptive pulse logo
 ├── bin/
 │   ├── agy-pulse                           # [Plugin] POSIX launcher (node -> agy-node fallback)
-│   └── agy-pulse.cmd                       # [Plugin] Windows launcher (node -> agy-node.exe fallback)
+│   ├── agy-pulse.cmd                       # [Plugin] Windows Batch launcher (node -> agy-node.exe fallback)
+│   └── agy-pulse.ps1                       # [Plugin] Windows PowerShell launcher helper (node -> agy-node.exe fallback)
 ├── dist/                                   # [Plugin · Git-Tracked Prebuilt Bundles with SPDX MIT Header]
 │   ├── hook-probe.cjs                      #   Zero-dep CJS hook probe (<8ms JS / <=50ms OS wall-clock)
 │   ├── mcp.cjs                             #   Zero-dep CJS MCP stdio server
@@ -149,12 +151,15 @@ antigravity-pulse/                          # Git repository root
 │   └── skills/                             #   Repo-specific engineering workflows if needed
 ├── scripts/                                # [Repo Dev & Installer]
 │   ├── build.mjs                           #   esbuild pipeline producing dist/* & sidecars/pulse_cockpit/dist/*
-│   ├── build-tests.mjs                     #   esbuild test compiler outputting .test-dist/*.test.cjs
-│   └── install.mjs                         #   Inode-preserving atomic installer (D-006)
+│   ├── build-tests.mjs                     #   esbuild test compiler flattening tests/<subpath>/*.test.ts -> .test-dist/<subpath>--*.test.cjs
+│   ├── install.mjs                         #   Inode-preserving atomic installer (D-006)
+│   ├── preview-ui.mjs                      #   Localhost UI preview & dense visual fixture server (`npm run preview`)
+│   └── verify-context.mjs                  #   Zero-dep 3-tier repo context governance & link verifier (`npm run verify:context`)
 ├── src/                                    # [Repo TypeScript Source of Truth]
 │   ├── types/
 │   │   ├── telemetry.ts                    #   Frozen domain, state machine, snapshot, config & budget contracts
 │   │   ├── rpc.ts                          #   LanguageServer Connect-RPC raw wire payload interfaces
+│   │   ├── sidecar-sdk.d.ts                #   Ambient SidecarApp, Response & Window.sidecar type declarations
 │   │   └── index.ts                        #   Barrel export of frozen contracts
 │   ├── state/
 │   │   ├── state-dir.ts                    #   $PULSE_STATE_DIR resolver, atomic tmp+rename, 0700/0600, ring append/rotate
@@ -184,8 +189,9 @@ antigravity-pulse/                          # Git repository root
 │   │   ├── embed-card.ts                   #   Self-contained HTML card generator for <agent-embed>
 │   │   └── server.ts                       #   Entry for dist/mcp.cjs (MCP stdio JSON-RPC server & 3 tools)
 │   └── cli/
+│       ├── snapshot-reader.ts              #   Shared $PULSE_STATE_DIR + optional env-injected LS telemetry loader
 │       ├── top-tui.ts                      #   ANSI terminal live TUI (`agy-pulse top`)
-│       ├── status-formatter.ts             #   Waybar / tmux / JSON formatter (`agy-pulse status`)
+│       ├── status-formatter.ts             #   Waybar / tmux / JSON / text formatter (`agy-pulse status`)
 │       └── main.ts                         #   Entry for dist/cli.cjs
 └── tests/                                  # [Repo Automated Test Suite (`node:test`)]
     ├── unit/                               #   Parsers, Cache Hit, retryInfos, State Machine, Topology, ETag, Config
@@ -615,22 +621,22 @@ Parallel worker agents within each stage MUST operate exclusively on disjoint fi
 
 | Stage | Track ID | Role | Owned Write Paths (Strictly Disjoint) | Shared Read-Only Dependencies |
 | :--- | :--- | :--- | :--- | :--- |
-| **Stage 0** | `S0-A` | Core Scaffold, Types, State Bus & Build/Install | `package.json`, `tsconfig.json`, `src/types/**`, `src/state/**`, `scripts/**`, `hooks.json`, `plugin.json`, `mcp_config.json`, `sidecars/pulse_cockpit/sidecar.json` | `docs/PRODUCT_DESIGN.md`, `docs/plans/*` |
+| **Stage 0** | `S0-A` | Core Scaffold, Types, State Bus & Build/Install | `package.json`, `package-lock.json`, `tsconfig.json`, `src/types/**`, `src/state/**`, `scripts/{build,build-tests,install,preview-ui}.mjs`, `hooks.json`, `plugin.json`, `mcp_config.json`, `sidecars/pulse_cockpit/sidecar.json`, `skills/model-pulse/SKILL.md` (stub), `bin/{agy-pulse,agy-pulse.cmd,agy-pulse.ps1}` (initial scaffolds), minimal entry scaffolds + `dist/**` | `docs/PRODUCT_DESIGN.md`, `docs/plans/*` |
 | **Stage 0** | `S0-B` | Stitch UI/UX Authoring & Flexoki Token Spec | `DESIGN.md`, `sidecars/pulse_cockpit/styles.css`, `sidecars/pulse_cockpit/index.html` | `docs/PRODUCT_DESIGN.md` §4–§5, `DESIGN.md` references |
 | **Stage 0** | `S0-QA` | Independent Referee & Contract Test Harness | `tests/unit/state-dir.test.ts`, `tests/contracts/manifest-contracts.test.ts`, `docs/plans/STAGE_0_AUDIT.md` | All Stage 0 files (read-only) |
 | **Stage 1** | `S1-A` | LS Connect-RPC, Core Calculations, Topology & State Machine | `src/rpc/**`, `src/core/**`, `tests/unit/core-*.test.ts`, `tests/unit/topology*.test.ts` | `src/types/**`, `src/state/**` |
 | **Stage 1** | `S1-B` | `<8ms` Hook Probe & `smart` Inline Stamp Engine | `src/hook/**`, `dist/hook-probe.cjs` (via build), `tests/unit/hook-*.test.ts`, `tests/benchmarks/hook-latency.test.ts` | `src/types/**`, `src/state/**`, `src/core/formatters.ts` |
-| **Stage 1** | `S1-C` | Sidecar Telemetry Engine, HTTP Server & `/hud` UI | `src/sidecar/**`, `src/ui/state.ts`, `src/ui/hud-view.ts`, `src/ui/main.ts`, `sidecars/pulse_cockpit/dist/**`, `tests/e2e/hud-loop.test.ts` | `src/types/**`, `src/core/**`, `src/rpc/**`, `DESIGN.md` |
+| **Stage 1** | `S1-C` | Sidecar Telemetry Engine, HTTP Server & `/hud` UI | `src/sidecar/**`, `src/ui/state.ts`, `src/ui/hud-view.ts`, `src/ui/main.ts`, `scripts/preview-ui.mjs`, `sidecars/pulse_cockpit/dist/**`, `tests/e2e/hud-loop.test.ts` | `src/types/**`, `src/core/**`, `src/rpc/**`, `DESIGN.md` |
 | **Stage 1** | `S1-QA` | Stage 1 Independent Referee | `tests/e2e/stage1-acceptance.test.ts` (or audit report), `docs/plans/STAGE_1_AUDIT.md` | All Stage 1 artifacts (read-only) |
 | **Stage 2** | `S2-A` | Timeline & Fleet Aggregation Builders + Server APIs | `src/core/timeline-builder.ts`, `src/core/fleet-builder.ts`, `src/sidecar/telemetry-engine.ts`, `src/sidecar/server.ts`, `tests/unit/timeline-fleet.test.ts` | `src/types/**`, `src/core/**` |
-| **Stage 2** | `S2-B` | `/hud` Timeline Tab & `/fleet` Sidebar UI | `src/ui/hud-view.ts`, `src/ui/fleet-view.ts`, `src/ui/state.ts`, `sidecars/pulse_cockpit/styles.css`, `sidecars/pulse_cockpit/dist/**`, `tests/e2e/fleet-timeline.test.ts` | `src/types/**`, `DESIGN.md` |
+| **Stage 2** | `S2-B` | `/hud` Timeline Tab & `/fleet` Sidebar UI | `src/ui/hud-view.ts`, `src/ui/fleet-view.ts`, `src/ui/state.ts`, `sidecars/pulse_cockpit/styles.css`, `scripts/preview-ui.mjs`, `sidecars/pulse_cockpit/dist/**`, `tests/e2e/fleet-timeline.test.ts` | `src/types/**`, `DESIGN.md` |
 | **Stage 2** | `S2-QA` | Stage 2 Independent Referee | `docs/plans/STAGE_2_AUDIT.md` | All Stage 2 artifacts (read-only) |
-| **Stage 3** | `S3-A` | `agy-pulse` CLI (`top` / `status` / `config`) & `bin/` Shims | `src/cli/**`, `bin/**`, `dist/cli.cjs`, `tests/unit/cli*.test.ts` | `src/types/**`, `src/state/**`, `src/core/formatters.ts` |
+| **Stage 3** | `S3-A` | `agy-pulse` CLI (`top` / `status` / `config`) & `bin/` Shims | `src/cli/**`, `bin/{agy-pulse,agy-pulse.cmd,agy-pulse.ps1}` (tested & hardened), `dist/cli.cjs`, `tests/unit/cli*.test.ts` | `src/types/**`, `src/state/**`, `src/core/formatters.ts` |
 | **Stage 3** | `S3-B` | MCP Server (`mcp.cjs`) & On-Demand `SKILL.md` | `src/mcp/**`, `skills/model-pulse/SKILL.md`, `dist/mcp.cjs`, `tests/unit/mcp*.test.ts` | `src/types/**`, `src/state/**`, `src/core/formatters.ts` |
 | **Stage 3** | `S3-QA` | Stage 3 & Prebuilt Packaging Independent Referee | `tests/e2e/full-system.test.ts`, `docs/plans/STAGE_3_AUDIT.md` | Whole repository (read-only) |
 | **Docs Sync** | `DOC-1` | Documentation Parity & Final Release Verification | `README.md`, `docs/README.md`, `docs/user-guide/getting-started.md`, `docs/developer-guide/*.md` | Whole repository |
 
-> **Sequential Edit Rule**: Files shared across tracks across stages (such as `src/sidecar/server.ts` or `src/ui/hud-view.ts`) are strictly owned by **one track per stage**; Stage `N+1` never begins until Stage `N` passes audit and commits.
+> **Sequential Edit Rule**: Files shared across tracks across stages (such as `src/sidecar/server.ts`, `src/ui/hud-view.ts`, `scripts/preview-ui.mjs`, `skills/model-pulse/SKILL.md`, and cross-platform launchers `bin/agy-pulse`, `bin/agy-pulse.cmd`, `bin/agy-pulse.ps1` — scaffolded in `Stage 0` `S0-A` and tested/hardened end-to-end in `Stage 3` `S3-A`) are strictly owned by **one track per stage**; Stage `N+1` never begins until Stage `N` passes audit and commits. `S0-A` never modifies `scripts/verify-context.mjs` (owned by Context Governance).
 
 ### 4.2 Peer Messaging & Contract Governance Charter
 
@@ -641,7 +647,7 @@ Parallel worker agents within each stage MUST operate exclusively on disjoint fi
    1. Read `00_MASTER_IMPLEMENTATION_BLUEPRINT.md`, `DECISION_LOG.md`, `LESSONS_LEARNED.md`, and the active `STAGE_X_*_PLAN.md`.
    2. Execute parallel disjoint tracks under strict `OWNED_WRITE_PATHS`.
    3. Run `npm run typecheck && npm run build && npm test`.
-   4. Run stage-specific benchmarks / `agy-pele check . --strict-mermaid` / `agy plugin validate . --strict --json`.
+   4. Run stage-specific benchmarks / `agy-pele check . --strict-mermaid` / `agy plugin validate . --json` (repo root, `0` errors, `components.rules === 0`) + `agy plugin validate ~/.gemini/config/plugins/antigravity-pulse --strict --json` (`0` errors, `0` warnings; see `L-008`).
    5. Independent Referee Audit (verifies PRD parity, contracts, and clean git status of prebuilt `dist/`).
    6. Record new decisions (`D-*`), lessons (`L-*`), and update Blueprint §6 Ledger.
    7. Atomic git commit per verified stage (with clean push at stage/mission milestones).
@@ -655,7 +661,7 @@ Every section, feature, metric, and guardrail from [`docs/PRODUCT_DESIGN.md`](..
 | Req ID | `PRODUCT_DESIGN.md` Ref | Feature / Metric / Threshold | Owning Stage | Source Files | Verification Method |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `RTM-01` | §1.1–§1.2 | Solve 4 black boxes & 5 JTBD (Routing Trust, Phase Attribution, Tier Audit, Quota/Context Health, 0-Token Control) | Stage 1–3 | `src/core/*`, `src/hook/*`, `src/ui/*`, `src/mcp/*`, `src/cli/*` | E2E mock LS suite + Stage audits |
-| `RTM-02` | §2.1 | Zero `app.asar` tampering; 4 legal surfaces (`AUX_PANE` `/hud`, `SIDEBAR` `/fleet`, `hooks.json`, MCP+CLI) | Stage 0–3 | `sidecars/pulse_cockpit/sidecar.json`, `hooks.json`, `mcp_config.json`, `bin/*` | `agy plugin validate . --strict --json` |
+| `RTM-02` | §2.1 | Zero `app.asar` tampering; 4 legal surfaces (`AUX_PANE` `/hud`, `SIDEBAR` `/fleet`, `hooks.json`, MCP+CLI) | Stage 0–3 | `sidecars/pulse_cockpit/sidecar.json`, `hooks.json`, `mcp_config.json`, `bin/*` | `agy plugin validate . --json` (repo root, `0` errors) + `agy plugin validate ~/.gemini/config/plugins/antigravity-pulse --strict --json` (`0` errors, `0` warnings) |
 | `RTM-03` | §2.1 (3) | Zero-token chat stamp via `systemMessage: ""` + `metadata.user_markdown` + canonical pill `sidecar://antigravity-pulse/pulse_cockpit/hud` | Stage 1 | `src/hook/hook-probe.ts`, `src/core/formatters.ts` | Unit + contract test asserting `systemMessage === ""` & canonical URI |
 | `RTM-04` | §2.2 | `GetCascadeModelConfigData` placeholder decoding (`MODEL_PLACEHOLDER_M427` etc.) + `defaultOverrideModelConfig` | Stage 1 | `src/rpc/ls-client.ts`, `src/core/model-catalog.ts` | Unit test with recorded LS payload |
 | `RTM-05` | §2.2 | `RetrieveUserQuotaSummary` 8-decimal `remainingFraction` + `resetTime` + single-turn `ΔQuota%` | Stage 1 | `src/rpc/ls-client.ts`, `src/core/quota-calculator.ts` | Unit test checking 8-decimal precision delta |
@@ -673,7 +679,7 @@ Every section, feature, metric, and guardrail from [`docs/PRODUCT_DESIGN.md`](..
 | `RTM-17` | §4.2 | Inline Turn Stamp modes (`smart` default, `every-turn`, `off`); `smart` triggers on Turn 1, served model change, `retryInfos.length > 1` / fallback, `CTX > 75%`, `5h < 20%`, with turn-key dedup | Stage 1 | `src/hook/hook-probe.ts`, `src/state/config-store.ts` | Exhaustive unit matrix + dedup persistence test |
 | `RTM-18` | §4.3 | `Pulse Fleet` (`SIDEBAR` `/fleet`): active compute headline, cross-project grouped running cascade trees, Top 5 Quota Burners | Stage 2 | `src/core/fleet-builder.ts`, `src/ui/fleet-view.ts` | Unit ranking/grouping tests + `/fleet` E2E test |
 | `RTM-19` | §4.4 (1) | MCP Server (`dist/mcp.cjs`): `pulse_status_card` (`<agent-embed>`), `pulse_get_compute_budget` (`<25%` 5h recommends `flash`), `pulse_set_preference` | Stage 3 | `src/mcp/server.ts`, `src/mcp/embed-card.ts`, `skills/model-pulse/SKILL.md` | MCP JSON-RPC stdio integration tests |
-| `RTM-20` | §4.4 (2) | `agy-pulse` CLI (`top` TUI, `status --format waybar\|tmux\|json [--watch]`, `config`) + `bin/agy-pulse` & `.cmd` with `agy-node` fallback | Stage 3 | `src/cli/main.ts`, `src/cli/top-tui.ts`, `src/cli/status-formatter.ts`, `bin/*` | CLI output & launcher fallback tests |
+| `RTM-20` | §4.4 (2) | `agy-pulse` CLI (`top` TUI, `status --format waybar\|tmux\|json [--watch]`, `config`) + `bin/agy-pulse`, `.cmd` & `.ps1` with `agy-node` fallback | Stage 3 | `src/cli/snapshot-reader.ts`, `src/cli/main.ts`, `src/cli/top-tui.ts`, `src/cli/status-formatter.ts`, `bin/*` | CLI output & launcher fallback tests |
 | `RTM-21` | §5.1 | 7-state Lifecycle State Machine (`IDLE`, `PRE_FLIGHT`, `THINKING`, `STREAMING`, `TOOL_RUNNING`, `BLOCKED_APPROVAL`, `ERROR_OR_QUOTA`) + Anti-Stale Reconciler (`1000ms`/`3000ms`) | Stage 1 | `src/core/state-machine.ts`, `src/sidecar/telemetry-engine.ts` | Exhaustive transition & stale-cascade convergence unit tests |
 | `RTM-22` | §5.2 | Flexoki Light/Dark 5-tier palette (`Purple #5e409d/#8b7ec8`, `Blue #205ea6/#4385be`, `Cyan #24837b/#3aa99f`, `Yellow #ad8301/#d0a215`, `Red #af3029/#d14d41`) + host CSS vars | Stage 0–2 | `DESIGN.md`, `sidecars/pulse_cockpit/styles.css` | CSS token verification & light/dark contrast audit |
 | `RTM-23` | §6.1 | Git-tracked zero-dep prebuilt bundles (`dist/*`, `sidecars/pulse_cockpit/dist/*`) + SPDX MIT header + inode-preserving `scripts/install.mjs` | Stage 0 & 3 | `scripts/build.mjs`, `scripts/install.mjs`, `.gitignore` | Clean-clone install test & inode preservation test |
@@ -690,15 +696,15 @@ Every section, feature, metric, and guardrail from [`docs/PRODUCT_DESIGN.md`](..
 | Phase / Step | Scope | Owner Track | Status | Audit Verdict | Commit SHA | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Repo Init** | Initial repository, `PRODUCT_DESIGN.md`, `README.md`, `docs/`, `LICENSE` | Pre-Mission | `[x] Done` | Baseline | `87419f0` | Verified baseline commit on `main`. |
-| **MISSION I — M1.1** | `00_MASTER_IMPLEMENTATION_BLUEPRINT.md`, `DECISION_LOG.md`, `LESSONS_LEARNED.md` | Chief Architect | `[x] Done` | Pending M1.3 | `(pending M1.3)` | Validated via `agy-pele check docs/plans --strict-mermaid`. |
-| **MISSION I — M1.2 (S0)** | `docs/plans/STAGE_0_FOUNDATION_PLAN.md` | Stage Planner | `[ ] Pending` | — | — | Covers pkg/build, `src/types/`, `$PULSE_STATE_DIR`, Stitch `DESIGN.md`, installer. |
-| **MISSION I — M1.2 (S1)** | `docs/plans/STAGE_1_MVP_LOOP_PLAN.md` | Stage Planner | `[ ] Pending` | — | — | Covers LS RPC, State Machine, Topology, Hook Probe, `/hud` AUX_PANE. |
-| **MISSION I — M1.2 (S2)** | `docs/plans/STAGE_2_TIMELINE_FLEET_PLAN.md` | Stage Planner | `[ ] Pending` | — | — | Covers Timeline Tab + `/fleet` SIDEBAR + Top 5 Burners. |
-| **MISSION I — M1.2 (S3)** | `docs/plans/STAGE_3_CLI_MCP_GOVERNANCE_PLAN.md` | Stage Planner | `[ ] Pending` | — | — | Covers `agy-pulse` CLI, `mcp.cjs`, `SKILL.md`, prebuilt bundle verification. |
-| **MISSION I — M1.2 (CTX)** | 3-Tier Repo Context Governance (`AGENTS.md`, `.agents/`) | Context Architect | `[ ] Pending` | — | — | Repo contributor governance only (zero plugin prompt leak). |
-| **MISSION I — M1.3** | MISSION I Consistency Audit & Git Push | Referee / Lead | `[ ] Pending` | — | — | Verify all `docs/plans/` against `PRODUCT_DESIGN.md` & `agy-pele check`. |
+| **MISSION I — M1.1** | `00_MASTER_IMPLEMENTATION_BLUEPRINT.md`, `DECISION_LOG.md`, `LESSONS_LEARNED.md` | Chief Architect | `[x] Done` | `APPROVED` (M1.3) | `d045b9f` | Validated via `agy-pele check docs/plans --strict-mermaid`. |
+| **MISSION I — M1.2 (S0)** | `docs/plans/STAGE_0_FOUNDATION_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `(backfill in Stage 0)` | Covers pkg/build, `src/types/`, `$PULSE_STATE_DIR`, Stitch `DESIGN.md`, installer. |
+| **MISSION I — M1.2 (S1)** | `docs/plans/STAGE_1_MVP_LOOP_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `(backfill in Stage 0)` | Covers LS RPC, State Machine, Topology, Hook Probe, `/hud` AUX_PANE. |
+| **MISSION I — M1.2 (S2)** | `docs/plans/STAGE_2_TIMELINE_FLEET_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `(backfill in Stage 0)` | Covers Timeline Tab + `/fleet` SIDEBAR + Top 5 Burners. |
+| **MISSION I — M1.2 (S3)** | `docs/plans/STAGE_3_CLI_MCP_GOVERNANCE_PLAN.md` | Stage Planner | `[x] Done` | `APPROVED` (M1.3) | `(backfill in Stage 0)` | Covers `agy-pulse` CLI, `mcp.cjs`, `SKILL.md`, prebuilt bundle verification. |
+| **MISSION I — M1.2 (CTX)** | 3-Tier Repo Context Governance (`AGENTS.md`, `.agents/`) | Context Architect | `[x] Done` | `APPROVED` (M1.3) | `(backfill in Stage 0)` | Repo contributor governance only (zero plugin prompt leak); `verify-context.mjs` PASS. |
+| **MISSION I — M1.3 (Auditor)** | MISSION I Consistency Audit, Remediation & Git Push | Referee / Lead | `[x] Done` | `VERDICT: APPROVED` | `(backfill in Stage 0)` | M1.3 Re-Audit APPROVED: `agy-pele check . --strict-mermaid` (17 files, 12 diagrams, 0 errors/warnings), `verify-context.mjs` PASS, `agy plugin validate . --json` 0 errors. |
 | **MISSION II — Stage 0** | Engineering & Stitch Design Foundation | `S0-A`, `S0-B`, `S0-QA` | `[ ] Pending` | — | — | Unlocks `[CONTRACT_SYNC]` for `src/types/*` & `DESIGN.md`. |
 | **MISSION II — Stage 1** | MVP Live Telemetry Loop (`/hud` + `<8ms` Hook + RPC) | `S1-A`, `S1-B`, `S1-C`, `S1-QA` | `[ ] Pending` | — | — | First end-to-end usable cockpit + smart inline stamp. |
 | **MISSION II — Stage 2** | Timeline Flame Axis & `/fleet` Global Sidebar | `S2-A`, `S2-B`, `S2-QA` | `[ ] Pending` | — | — | Multi-project active radar & Top 5 Quota Burners. |
 | **MISSION II — Stage 3** | `agy-pulse` CLI, MCP Server, `SKILL.md` & Packaging | `S3-A`, `S3-B`, `S3-QA` | `[ ] Pending` | — | — | Full 4-surface release + prebuilt `dist/` commit. |
-| **MISSION II — Docs Sync & Release** | Docs parity check, `agy plugin validate --strict`, push | `DOC-1` + Referee | `[ ] Pending` | — | — | All 28 RTM rows verified passing. |
+| **MISSION II — Docs Sync & Release** | Docs parity check, installed `agy plugin validate --strict`, push | `DOC-1` + Referee | `[ ] Pending` | — | — | All 28 RTM rows verified passing. |

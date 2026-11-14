@@ -10,7 +10,7 @@
 - **包管理器**：`npm`。
 - **可选验证工具**：
   - [`agy-pele`](https://github.com/springtian1982/antigravity-pele)：用于执行 `agy-pele check . --strict-mermaid` 校验仓库内所有 Markdown 图表语法与 GitHub 渲染兼容性。
-  - `agy`（Google Antigravity CLI）：用于执行 `agy plugin validate . --strict` 校验插件清单结构。
+  - `agy`（Google Antigravity CLI）：用于执行 `agy plugin validate . --json`（仓库根目录）与 `agy plugin validate ~/.gemini/config/plugins/antigravity-pulse --strict --json`（全局安装目录）校验插件清单结构。
 
 克隆并初始化本地开发环境：
 
@@ -61,7 +61,13 @@ npm test
 agy-pele check . --strict-mermaid
 
 # 4. Antigravity 插件结构校验（若本地已安装 agy CLI）
-agy plugin validate . --strict --json
+# 4a. 在仓库检出根目录（.）运行：必须 0 error
+#     （注：工作区根目录的 AGENTS.md 会触发 1 条预期的非插件规则警告——为保证 0 闲置 Token 注入，发行插件刻意不包含 rules/）
+agy plugin validate . --json
+
+# 4b. 全局安装后对已安装插件目录执行严格校验：必须 0 error, 0 warning
+npm run install:global
+agy plugin validate ~/.gemini/config/plugins/antigravity-pulse --strict --json
 ```
 
 ---
