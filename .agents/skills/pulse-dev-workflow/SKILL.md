@@ -12,9 +12,9 @@ Follow this 6-step workflow for every implementation, refactoring, or documentat
 
 ## Step 1: Mandatory Pre-Read & Contract Check
 
-1. Read [00_MASTER_IMPLEMENTATION_BLUEPRINT.md](../../../docs/plans/00_MASTER_IMPLEMENTATION_BLUEPRINT.md), [DECISION_LOG.md](../../../docs/plans/DECISION_LOG.md) (`D-001`–`D-010`), and [LESSONS_LEARNED.md](../../../docs/plans/LESSONS_LEARNED.md) (`L-001`–`L-021`).
-2. Read the relevant stage plan (`docs/plans/STAGE_0_FOUNDATION_PLAN.md`–`docs/plans/STAGE_3_CLI_MCP_GOVERNANCE_PLAN.md`) and audit record (`docs/plans/STAGE_0_AUDIT.md`–`docs/plans/STAGE_3_AUDIT.md`), verifying your `OWNED_WRITE_PATHS` in Blueprint §4.1.
-3. Review [architecture-and-guardrails.md](../../rules/architecture-and-guardrails.md) (`D-001`–`D-010`, `L-001`–`L-021`, and the 4 Engineering Guardrails).
+1. Read [00_MASTER_IMPLEMENTATION_BLUEPRINT.md](../../../docs/plans/00_MASTER_IMPLEMENTATION_BLUEPRINT.md), [DECISION_LOG.md](../../../docs/plans/DECISION_LOG.md) (`D-001`–`D-011`), and [LESSONS_LEARNED.md](../../../docs/plans/LESSONS_LEARNED.md) (`L-001`–`L-022`).
+2. Read the relevant stage plan (`docs/plans/STAGE_0_FOUNDATION_PLAN.md`–`docs/plans/STAGE_3_CLI_MCP_GOVERNANCE_PLAN.md`) and audit record (`docs/plans/STAGE_0_AUDIT.md`–`docs/plans/FINAL_ACCEPTANCE_AUDIT_REPORT.md`), verifying your `OWNED_WRITE_PATHS` in Blueprint §4.1.
+3. Review [architecture-and-guardrails.md](../../rules/architecture-and-guardrails.md) (`D-001`–`D-011`, `L-001`–`L-022`, and the 4 Engineering Guardrails).
 4. **Contract Freeze Rule**: Never modify `src/types/telemetry.ts`, `src/types/rpc.ts`, or `$PULSE_STATE_DIR` JSON schemas unilaterally. Send `[CONTRACT_CHANGE_REQUEST]` and log a `D-NNN` entry in [DECISION_LOG.md](../../../docs/plans/DECISION_LOG.md) first.
 
 ## Step 2: Implement With Canonical Primitives & Pitfall Guards
@@ -24,7 +24,7 @@ Follow this 6-step workflow for every implementation, refactoring, or documentat
 - Enforce hot-path & bundler hygiene:
   - Keep `src/state/state-dir.ts` and `dist/hook-probe.cjs` free of `node:crypto` (`D-010` / `L-020`).
   - Gate CLI/hook/MCP entrypoints (`src/hook/hook-probe.ts`, `src/cli/main.ts`, `src/mcp/server.ts`) on both `require.main === module` and `require.main?.filename` regex (`L-013`).
-  - Scrub ambient `ANTIGRAVITY_*` / `PULSE_*` / `CLAUDE_PLUGIN_DATA` env vars in isolated child-process tests (`L-017`), use `codePointDisplayWidth` for CJK terminal alignment (`L-018`), and keep `skills/model-pulse/SKILL.md` locked to `ComputeBudgetAdvice` / `pulse_status_card` keys (`L-021`).
+  - Scrub ambient `ANTIGRAVITY_APP_DATA_DIR` / `ANTIGRAVITY_*` / `PLUGIN_DATA` / `PULSE_*` / `CLAUDE_PLUGIN_DATA` env vars in isolated child-process tests (`L-017` / `L-022`), use `codePointDisplayWidth` for CJK terminal alignment (`L-018`), and keep `skills/model-pulse/SKILL.md` locked to `ComputeBudgetAdvice` / `pulse_status_card` keys (`L-021`).
 - Keep `AGENTS.md` and `.agents/` workspace-only (`D-007`); never create a plugin-root `rules/` folder.
 
 ## Step 3: Typecheck, Compile Prebuilt Bundles & Run Sequential Benchmark Gate
@@ -39,7 +39,7 @@ npm run typecheck && npm run build && npm test
 Verify that:
 - Zero TypeScript errors exist (`tsc --noEmit`).
 - `scripts/build.mjs` cleanly emits `dist/hook-probe.cjs`, `dist/mcp.cjs`, `dist/cli.cjs`, `sidecars/pulse_cockpit/dist/server.mjs`, and `sidecars/pulse_cockpit/dist/ui.js` with SPDX MIT headers, `sidecar_sdk` marked external, and zero `node:crypto` inside `dist/hook-probe.cjs`.
-- `npm test` passes all functional `node:test` suites (`unit/`, `contracts/`, `e2e/` — `108` tests) in parallel AND passes the isolated sequential benchmark phase (`tests/benchmarks/hook-latency.test.ts` — `2` tests per `D-009` & `D-010`: `in-process JS <= 8.0ms` and paired bare-V8 calibrated `pairedDelta <= 20.0ms`, `<= max(50ms, bareNode+20ms)`, `<= 100ms`) with zero skipped or weakened assertions.
+- `npm test` passes all functional `node:test` suites (`unit/`, `contracts/`, `e2e/` — `109` tests) in parallel AND passes the isolated sequential benchmark phase (`tests/benchmarks/hook-latency.test.ts` — `2` tests per `D-009` & `D-010`: `in-process JS <= 8.0ms` and paired bare-V8 calibrated `pairedDelta <= 20.0ms`, `<= max(50ms, bareNode+20ms)`, `<= 100ms`) with zero skipped or weakened assertions.
 
 ## Step 4: Strict Context Governance, Mermaid 12.1 & Repo Plugin Validation
 

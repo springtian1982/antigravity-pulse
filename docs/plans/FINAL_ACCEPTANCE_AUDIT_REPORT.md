@@ -4,7 +4,7 @@
 > **Independent Final Referee**: `FINAL-QA` (`09356659-1da0-4992-98a1-aba6612b418a`)  
 > **Final Acceptance Verdict**: **`VERDICT: APPROVED` (`0` Blocking · `0` Major · `3` Minor · `2` Observations)**  
 > **Audit Date**: `2026-11-14`  
-> **Canonical Specifications**: [`docs/PRODUCT_DESIGN.md`](../PRODUCT_DESIGN.md) (§1–§7) · [`DESIGN.md`](../../DESIGN.md) · [`00_MASTER_IMPLEMENTATION_BLUEPRINT.md`](./00_MASTER_IMPLEMENTATION_BLUEPRINT.md) · [`DECISION_LOG.md`](./DECISION_LOG.md) (`D-001`–`D-010`) · [`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md) (`L-001`–`L-021`)
+> **Canonical Specifications**: [`docs/PRODUCT_DESIGN.md`](../PRODUCT_DESIGN.md) (§1–§7) · [`DESIGN.md`](../../DESIGN.md) · [`00_MASTER_IMPLEMENTATION_BLUEPRINT.md`](./00_MASTER_IMPLEMENTATION_BLUEPRINT.md) · [`DECISION_LOG.md`](./DECISION_LOG.md) (`D-001`–`D-011`) · [`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md) (`L-001`–`L-022`)
 
 ---
 
@@ -19,7 +19,8 @@ flowchart LR
   S0 --> S1["Stage 1: bbf1a68<br/>Read-Only RPC + Hook + /hud MVP<br/>(S1-QA APPROVED)"]
   S1 --> S2["Stage 2: 71a621f<br/>Timeline Flame + /fleet Sidebar<br/>(S2-QA APPROVED)"]
   S2 --> S3["Stage 3: 4064b48<br/>agy-pulse CLI + MCP + SKILL.md<br/>(S3-QA APPROVED)"]
-  S3 --> CLOSE["Final Closeout: DOC-1 + FINAL-QA<br/>28/28 RTM + 8/8 Gates PASS<br/>(VERDICT: APPROVED)"]
+  S3 --> CLOSE["Final Closeout: 99fbaa3<br/>28/28 RTM + 8/8 Gates PASS<br/>(FINAL-QA APPROVED)"]
+  CLOSE --> HSYNC["Host-Sync Hardening: D-011 + L-022<br/>plugin_data Default + Bundle Self-Restart<br/>(109+2 Tests PASS)"]
 ```
 
 ### 1.1 Complete Milestone & Independent Audit Ledger
@@ -33,7 +34,8 @@ flowchart LR
 | **MISSION II — Stage 1** | `bbf1a68` | `S1-QA` (`48de57b4`) — [`STAGE_1_AUDIT.md`](./STAGE_1_AUDIT.md) | `APPROVED` | `63/63` functional + `2/2` benchmarks, `V1`–`V5` `360px` QA, `D-009`, `L-013`–`L-015` |
 | **MISSION II — Stage 2** | `71a621f` | `S2-QA` (`b9fc90ea`) — [`STAGE_2_AUDIT.md`](./STAGE_2_AUDIT.md) | `APPROVED` | `77/77` functional + `2/2` benchmarks, `VIS-01`–`VIS-06` + rechecks, `L-016` |
 | **MISSION II — Stage 3** | `4064b48` | `S3-QA` (`7b37586a`) — [`STAGE_3_AUDIT.md`](./STAGE_3_AUDIT.md) | `APPROVED` | `108/108` functional + `2/2` calibrated benchmarks, live `doctor` `5/5`, `D-010`, `L-017`–`L-021` |
-| **MISSION II — Final Acceptance** | `HEAD` (Closeout) | `FINAL-QA` (`09356659`) — This Report | `APPROVED` | `28/28` RTM rows `PASS`, `108+2` tests `0` fail, `14` Mermaid diagrams `0` errors, `findings: []` |
+| **MISSION II — Final Acceptance** | `99fbaa3` | `FINAL-QA` (`09356659`) — This Report | `APPROVED` | `28/28` RTM rows `PASS`, `108+2` tests `0` fail, `14` Mermaid diagrams `0` errors, `findings: []` |
+| **MISSION II — Host-Sync Hardening** | `HEAD` (Host-Sync) | Post-Acceptance Live Host Sync (`D-011`, `L-022`) | `VERIFIED` | Unified `<appDataDir>/plugin_data/antigravity-pulse` default + `watchBundleForRestart`, `109/109` functional + `2/2` benchmarks `PASS` |
 
 ---
 
@@ -116,21 +118,21 @@ Every visual surface was authored against Flexoki Light (`#fffcf0` / `#f2f0e5`) 
 
 ---
 
-## 5. Architectural Decisions (`D-001`–`D-010`) & Pitfall Ledger (`L-001`–`L-021`) Summary
+## 5. Architectural Decisions (`D-001`–`D-011`) & Pitfall Ledger (`L-001`–`L-022`) Summary
 
 ### 5.1 Architectural Decisions ([`DECISION_LOG.md`](./DECISION_LOG.md))
 
 - **`D-001`**: 4-stage engineering pipeline (`Stage 0..3`) locking types, state bus, Stitch tokens, and build/install plumbing before parallel feature tracks.
 - **`D-002`**: Unified single-process `sidecars/pulse_cockpit/` serving `/hud` (`AUX_PANE`), `/fleet` (`SIDEBAR`), and `/` alias, standardized on `sidecar://antigravity-pulse/pulse_cockpit/hud`.
-- **`D-003`**: `$PULSE_STATE_DIR` (`0700`/`0600`) atomic `tmp + renameSync` + `O_APPEND` cross-process telemetry bus (`< 2ms` reads, zero `/proc` scraping).
+- **`D-003` & `D-011`**: `$PULSE_STATE_DIR` (`0700`/`0600`) atomic `tmp + renameSync` + `O_APPEND` cross-process telemetry bus (`< 2ms` reads, zero `/proc` scraping), with default fallback unified to `<ANTIGRAVITY_APP_DATA_DIR || ANTIGRAVITY_DATA_DIR || ~/.gemini/antigravity>/plugin_data/antigravity-pulse` matching Antigravity's native `PLUGIN_DATA` layout.
 - **`D-004` & `D-009` & `D-010`**: OpenSSL-free `dist/hook-probe.cjs` (`34,536 B`, zero `node:crypto`) + sequential benchmark phase asserting both `in-process JS <= 8.0ms` and paired bare-V8 calibrated OS `fork+exec` (`pairedDelta <= 20.0ms`, `<= max(50.0ms, bare+20.0ms)`, `<= 100.0ms`).
-- **`D-005` & `D-006`**: Git-tracked SPDX-MIT prebuilt bundles (`dist/*` & `sidecars/pulse_cockpit/dist/*`) + inode-preserving atomic `scripts/install.mjs` (`node` -> `agy-node` fallback).
+- **`D-005` & `D-006` & `D-011`**: Git-tracked SPDX-MIT prebuilt bundles (`dist/*` & `sidecars/pulse_cockpit/dist/*`) + inode-preserving atomic `scripts/install.mjs` (`node` -> `agy-node` fallback) + `watchBundleForRestart` (`3000ms` `.unref()` `statSync` check + `400ms` deferred `shutdown()`) so `"restart_policy": "always"` respawns updated Sidecar bundles automatically.
 - **`D-007`**: Zero-token plugin hygiene — zero `rules/` shipped in plugin bundle (`0` idle prompt tokens); workspace `AGENTS.md` + `.agents/` kept contributor-only; on-demand `skills/model-pulse/SKILL.md` shipped for MCP governance.
 - **`D-008`**: Host `--background`/`--foreground` variable mapping with `body` `!important` override over `preload.js` `#fafafa`, WCAG `>= 4.5:1` `*-ink` tokens, and isolated `--project 9409889379743133909` Stitch CLI invocations.
 
 ### 5.2 Empirical Pitfall Ledger ([`LESSONS_LEARNED.md`](./LESSONS_LEARNED.md))
 
-- **Host Connect-RPC & Storage Contracts (`L-001`–`L-007`, `L-021`)**: Int64 string token coercion (`L-001`), `inputTokens + cacheReadTokens` cache hit denominator (`L-002`), `retryInfos.length === 1` unretried baseline (`L-003`), `RUNNING`-only `stepOffset` + `disableRehydration: true` (`L-004`), `swarm/members.json` object-map iteration (`L-005`), `"pulse-telemetry"` asymmetric `hooks.json` + `PreToolUse` `{"decision":"allow"}` (`L-006`), `SidecarApp` `Response` wrappers for CSS/JS/HTML and HTTP `400` errors (`L-007`), and `SKILL.md` schema-key contract guards + unmapped `MODEL_PLACEHOLDER_*` routing trust (`L-021`).
+- **Host Connect-RPC & Storage Contracts (`L-001`–`L-007`, `L-021`, `L-022`)**: Int64 string token coercion (`L-001`), `inputTokens + cacheReadTokens` cache hit denominator (`L-002`), `retryInfos.length === 1` unretried baseline (`L-003`), `RUNNING`-only `stepOffset` + `disableRehydration: true` (`L-004`), `swarm/members.json` object-map iteration (`L-005`), `"pulse-telemetry"` asymmetric `hooks.json` + `PreToolUse` `{"decision":"allow"}` (`L-006`), `SidecarApp` `Response` wrappers for CSS/JS/HTML and HTTP `400` errors (`L-007`), `SKILL.md` schema-key contract guards + unmapped `MODEL_PLACEHOLDER_*` routing trust (`L-021`), and unified `plugin_data/antigravity-pulse` fallback + `watchBundleForRestart` Sidecar hot-upgrade self-restart (`L-022`).
 - **Build, Test & Cold-Spawn Determinism (`L-008`–`L-010`, `L-012`, `L-013`, `L-015`, `L-017`, `L-020`)**: Repo vs installed `--strict` plugin validation (`L-008`), clean `tsconfig.json` (`L-009`), flattened `.test-dist/<subpath>--<name>.test.cjs` test bundles (`L-010`), port `0` & POSIX `"${HOME:-}"` guards (`L-012`), dual `require.main === module` + filename regex entrypoint guards (`L-013`), sequential benchmark runner & `?theme=`/`?scenario=` preview hooks (`L-015`), `ANTIGRAVITY_*` env scrubbing & `--watch` child lifecycle isolation (`L-017`), and eliminating `node:crypto` OpenSSL cold-init from `state-dir.ts` (`L-020`).
 - **Narrow Sidecar CSS & CJK Terminal Widths (`L-011`, `L-014`, `L-016`, `L-018`, `L-019`)**: Stitch `:download` JSON decoding (`L-011`), `360px` HUD `[data-level]` `<progress>` & `.pulse-btn-label` ellipsis (`L-014`), 2-row `/fleet` drawer wrapping & unshrinking `.pulse-node-kind` badges (`L-016`), East Asian/emoji `codePointDisplayWidth` + `$COLUMNS`/`$LINES` fallback in `top-tui.ts` (`L-018`), and `440px` `<agent-embed>` 2-tier rows + `inline-block` `.pill` ellipsis (`L-019`).
 
@@ -159,9 +161,9 @@ All 8 release verification gates plus live `agy-pulse doctor --json` executed se
 [build] Compiled 5 bundles into dist/ and sidecars/pulse_cockpit/dist/
 [build-tests] Compiled 22 test file(s) into .test-dist/
 ...
-ℹ tests 108
+ℹ tests 109
 ℹ suites 28
-ℹ pass 108
+ℹ pass 109
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0

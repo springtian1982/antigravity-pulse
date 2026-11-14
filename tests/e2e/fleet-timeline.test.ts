@@ -625,6 +625,7 @@ describe('e2e/fleet-timeline — Stage 2 Real Sidecar, Preview Server & DOM Cont
         ANTIGRAVITY_SIDECAR_WEB_PORT: '0',
         ANTIGRAVITY_SIDECAR_UI_TOKEN: uiToken,
         ANTIGRAVITY_PULSE_STATE_DIR: stateDir,
+        ANTIGRAVITY_APP_DATA_DIR: agyDir,
         ANTIGRAVITY_DATA_DIR: agyDir,
         ANTIGRAVITY_CONVERSATION_ID: CID_ALPHA_ROOT,
       },

@@ -567,12 +567,16 @@ export interface ComputeBudgetAdvice {
 
 ### 3.3 Cross-Process State Bus (`$PULSE_STATE_DIR`) File Schemas
 
-- **Directory Resolution**:
+- **Directory Resolution (`D-003`, refined by `D-011`)**:
   ```ts
+  const appDataDir =
+    process.env.ANTIGRAVITY_APP_DATA_DIR?.trim() ||
+    process.env.ANTIGRAVITY_DATA_DIR?.trim() ||
+    path.join(os.homedir(), '.gemini', 'antigravity');
   const stateDir =
     process.env.ANTIGRAVITY_PULSE_STATE_DIR ||
     process.env.PLUGIN_DATA ||
-    path.join(os.homedir(), '.gemini', 'antigravity', 'pulse-state');
+    path.join(appDataDir, 'plugin_data', 'antigravity-pulse');
   ```
 - **Security & Atomicity Invariants**:
   - Directory created with mode `0o700`; JSON files written via temp file (mode `0o600`) in the same directory followed by atomic `renameSync(tmpPath, targetPath)`.
@@ -707,4 +711,5 @@ Every section, feature, metric, and guardrail from [`docs/PRODUCT_DESIGN.md`](..
 | **MISSION II — Stage 1** | MVP Live Telemetry Loop (`/hud` + `<8ms` Hook + RPC) | `S1-A`, `S1-B`, `S1-C`, `S1-QA` | `[x] Done` | `VERDICT: APPROVED` | `bbf1a68` | `63/63` unit/contract/E2E + `2/2` benchmark (`0.198ms` JS / `42.692ms` OS median), `V1`–`V5` Flexoki Light/Dark QA pass, `D-009`, `L-013`–`L-015`, [`STAGE_1_AUDIT.md`](./STAGE_1_AUDIT.md). |
 | **MISSION II — Stage 2** | Timeline Flame Axis & `/fleet` Global Sidebar | `S2-A`, `S2-B`, `S2-QA` | `[x] Done` | `VERDICT: APPROVED` | `71a621f` | `77/77` unit/contract/E2E + `2/2` benchmark (`0.153ms` JS / `40.598ms` OS median), `VIS-01`–`VIS-06` + `VIS-04-R`/`VIS-05-R`/`VIS-06-R` Flexoki Light/Dark QA pass, `L-016`, [`STAGE_2_AUDIT.md`](./STAGE_2_AUDIT.md). |
 | **MISSION II — Stage 3** | `agy-pulse` CLI, MCP Server, `SKILL.md` & Packaging | `S3-A`, `S3-B`, `S3-QA` | `[x] Done` | `VERDICT: APPROVED` | `4064b48` | `108/108` unit/contract/E2E + `2/2` calibrated benchmarks (`0.196ms` JS / `45.839ms` OS, `bare=34.973ms`, `delta=9.420ms`), `NO_CRYPTO_IN_HOOK_OK`, `1571a09f` card visual QA, live `doctor` `5/5` + CLI/MCP probes, `D-010`, `L-017`–`L-021`, [`STAGE_3_AUDIT.md`](./STAGE_3_AUDIT.md). |
-| **MISSION II — Docs Sync & Release** | Docs parity check, installed `agy plugin validate --strict`, push | `DOC-1` + `FINAL-QA` | `[x] Done` | `VERDICT: APPROVED` | `HEAD` (Closeout) | All 28 `RTM-01`–`RTM-28` rows & 8 release gates verified passing; [`FINAL_ACCEPTANCE_AUDIT_REPORT.md`](./FINAL_ACCEPTANCE_AUDIT_REPORT.md). |
+| **MISSION II — Docs Sync & Release** | Docs parity check, installed `agy plugin validate --strict`, push | `DOC-1` + `FINAL-QA` | `[x] Done` | `VERDICT: APPROVED` | `99fbaa3` | All 28 `RTM-01`–`RTM-28` rows & 8 release gates verified passing; [`FINAL_ACCEPTANCE_AUDIT_REPORT.md`](./FINAL_ACCEPTANCE_AUDIT_REPORT.md). |
+| **MISSION II — Host-Sync Hardening** | Unify default `$PULSE_STATE_DIR` with host `plugin_data` & Sidecar `watchBundleForRestart` (`D-011`, `L-022`) | `S1-A` + `DOC-1` | `[x] Done` | `VERIFIED` | `HEAD` (Host-Sync) | `109/109` functional + `2/2` calibrated benchmarks PASS; zero `node:crypto` in hook; `findings: []` on strict install validation. |

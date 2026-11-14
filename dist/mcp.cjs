@@ -1853,7 +1853,8 @@ function resolveStateDir(overrideDir) {
   const trimmedOverride = overrideDir?.trim();
   const envStateDir = process.env.ANTIGRAVITY_PULSE_STATE_DIR?.trim();
   const pluginData = process.env.PLUGIN_DATA?.trim();
-  const chosen = trimmedOverride || envStateDir || pluginData || import_node_path2.default.join(import_node_os.default.homedir(), ".gemini", "antigravity", "pulse-state");
+  const appDataDir = process.env.ANTIGRAVITY_APP_DATA_DIR?.trim() || process.env.ANTIGRAVITY_DATA_DIR?.trim() || import_node_path2.default.join(import_node_os.default.homedir(), ".gemini", "antigravity");
+  const chosen = trimmedOverride || envStateDir || pluginData || import_node_path2.default.join(appDataDir, "plugin_data", "antigravity-pulse");
   return import_node_path2.default.resolve(chosen);
 }
 function getStatePaths(overrideDir) {

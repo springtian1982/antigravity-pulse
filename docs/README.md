@@ -42,7 +42,7 @@ flowchart TD
 | 文档 | 内容摘要 | 适合场景 |
 | :--- | :--- | :--- |
 | [系统架构与内部原理](developer-guide/architecture.md) | `$PULSE_STATE_DIR` 原子状态总线、零 OpenSSL Hook 探针（`D-004`/`D-010`）、5 方法只读 Connect-RPC 白名单、7 态状态机、三源拓扑融合 + `MODEL_PLACEHOLDER_*` 路由对账（`L-021`）、`34B` ETag 缓存与双帧 MCP 服务 | 深入理解各 `src/*` 模块职责与数据流 |
-| [本地开发、测试与贡献指南](developer-guide/contributing.md) | TypeScript + `esbuild` 预构建体系、108 项功能测试 + 2 项顺序校准基准测试（`D-009`/`D-010`）、`verify-context.mjs --strict-paths`、`agy-pele` 图表门禁与 `D-001`–`D-010` / `L-001`–`L-021` 速查 | 本地构建、运行全量验证门禁与提交贡献 |
+| [本地开发、测试与贡献指南](developer-guide/contributing.md) | TypeScript + `esbuild` 预构建体系、109 项功能测试 + 2 项顺序校准基准测试（`D-009`/`D-010`）、`verify-context.mjs --strict-paths`、`agy-pele` 图表门禁与 `D-001`–`D-011` / `L-001`–`L-022` 速查 | 本地构建、运行全量验证门禁与提交贡献 |
 
 ---
 
@@ -58,8 +58,8 @@ flowchart TD
 | [Stage 2 时间轴与全局舰队计划](plans/STAGE_2_TIMELINE_FLEET_PLAN.md) · [Stage 2 独立审计](plans/STAGE_2_AUDIT.md) | `/hud` `Timeline` 火焰轴（`TTFT` vs `Streaming` + 思考占比）与 `/fleet` `SIDEBAR` 跨项目雷达及 Top 5 配额消耗榜（提交 `71a621f`，`APPROVED`） | 查阅或复核 Stage 2 深度可观测性 |
 | [Stage 3 CLI、MCP 治理与打包计划](plans/STAGE_3_CLI_MCP_GOVERNANCE_PLAN.md) · [Stage 3 独立审计](plans/STAGE_3_AUDIT.md) | `agy-pulse` CLI（`status`/`top`/`config`/`doctor`）、双帧零依赖 MCP 服务、`skills/model-pulse/SKILL.md` 与真机端到端验收（提交 `4064b48`，`APPROVED`） | 查阅或复核 Stage 3 生态外延与打包发布 |
 | [终验全量审计报告 (`FINAL_ACCEPTANCE_AUDIT_REPORT.md`)](plans/FINAL_ACCEPTANCE_AUDIT_REPORT.md) | 覆盖 `PRODUCT_DESIGN.md` §1–§7、全部 28 项 `RTM-01`–`RTM-28`、多阶段视觉走查与最终 8 道自动化门禁的独立终验档案（`FINAL-QA` `APPROVED`） | 发布终验复核与全链路需求追溯 |
-| [架构决策日志 (`DECISION_LOG.md`)](plans/DECISION_LOG.md) | 只追加不删改的架构、协议、基准测试与打包决策台账（`D-001`–`D-010`） | 追溯设计取舍与发起 `[CONTRACT_CHANGE_REQUEST]` |
-| [实证避坑台账 (`LESSONS_LEARNED.md`)](plans/LESSONS_LEARNED.md) | 宿主 RPC、存储、CSS 窄栏、终端宽字符与冷启动实测陷阱记录（`L-001`–`L-021`） | 编码、重构与代码评审前强制预读避坑 |
+| [架构决策日志 (`DECISION_LOG.md`)](plans/DECISION_LOG.md) | 只追加不删改的架构、协议、基准测试与打包决策台账（`D-001`–`D-011`） | 追溯设计取舍与发起 `[CONTRACT_CHANGE_REQUEST]` |
+| [实证避坑台账 (`LESSONS_LEARNED.md`)](plans/LESSONS_LEARNED.md) | 宿主 RPC、存储、CSS 窄栏、终端宽字符与冷启动实测陷阱记录（`L-001`–`L-022`） | 编码、重构与代码评审前强制预读避坑 |
 
 ---
 

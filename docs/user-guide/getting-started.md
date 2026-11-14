@@ -35,6 +35,11 @@ node scripts/install.mjs
 
 安装脚本还支持可选参数：`node scripts/install.mjs [--target-dir <dir>] [--bin-dir <dir>] [--node-path <exe>] [--force-patch]`。
 
+> **升级热重载说明（`D-011` / `L-022`）**：当前版本 `pulse_cockpit` Sidecar 内置 `3s` 产物签名自检（`watchBundleForRestart`），后续执行 `npm run install:global` 覆盖更新后会在约 `3.4s` 内自动优雅退出并由宿主拉起新版本。若你是从早期未内置自检的旧版驻留进程首次升级，可执行一次插件重开命令完成切换：
+> ```bash
+> agy plugin disable antigravity-pulse && agy plugin enable antigravity-pulse
+> ```
+
 安装后可立即执行五维环境自检：
 
 ```bash
@@ -49,7 +54,7 @@ agy-pulse doctor
 
 ### 2.1 右侧会话伴随舱：`Pulse HUD` (`/hud` · `AUX_PANE`) 与调用火焰轴 (`Timeline`)
 
-在聊天面板右上角视图菜单中打开 **Model Pulse**，或直接点击内联微章 / MCP 回复中的 `[Model Pulse](sidecar://antigravity-pulse/pulse_cockpit/hud)` 胶囊（`D-002` 标准 URI）：
+在 Antigravity 聊天面板右上角视图菜单（或 `Extensions ➔ Model Pulse`）中打开 **Model Pulse** 右侧辅助舱，或直接点击聊天内联微章 / MCP 回复中的 `[Model Pulse](sidecar://antigravity-pulse/pulse_cockpit/hud)` 胶囊（`D-002` 标准 URI）：
 
 1. **吸顶主会话脉冲栏（Sticky Hero Card）**：
    - **子会话面包屑导航**：切入子代理会话时顶部显示 `Root ➔ Subagent` 路径及一键返回父会话按钮。
@@ -78,7 +83,7 @@ agy-pulse doctor
 
 ### 2.3 左侧全局舰队监控台：`Pulse Fleet` (`/fleet` · `SIDEBAR`)
 
-点击 Antigravity 左侧活动栏中的 **Pulse Fleet** 图标，跨所有打开的工作区（Projects）全局掌控后台算力：
+在 Antigravity 左侧扩展/活动栏（`Extensions ➔ Model Pulse ➔ Pulse Fleet`）点击打开 **Pulse Fleet** 侧边栏，跨所有打开的工作区（Projects）全局掌控后台算力：
 
 - **全局活跃算力头条**：实时统计本机正在运行的 Root 会话数、活跃 Subagent/Swarm 总数以及各模型档位并发分布直方图（如 `Carbon(H) ×2 · Argon(M) ×3 · Flash ×2`）。
 - **按项目分组的活跃会话树**：展示所有后台运行任务（含 `/goal` 与 `/schedule`），点击展开抽屉即可检视子代理列表并点击 **`[↗]`** 一键跳转。
@@ -174,7 +179,7 @@ agy-pulse doctor [--json] [--state-dir <path>]
 
 ## 4. MCP 工具集与智能体自适应算力治理
 
-插件内置零外部依赖 MCP 服务 `antigravity-pulse`（`dist/mcp.cjs`）与按需加载技能 `skills/model-pulse/SKILL.md`。在对话中直接要求 Agent 展示遥测卡片或自检配额预算时，Agent 可调用以下工具：
+插件内置零外部依赖 MCP 服务 `antigravity-pulse`（`dist/mcp.cjs`）与按需加载技能 `skills/model-pulse/SKILL.md`。在对话中通过 `@` 引用或自然语言要求 Agent 展示遥测卡片、自检配额预算时，Agent 可直接调用以下工具：
 
 1. **`pulse_status_card`**（参数：`{ conversationId?, theme?: "auto" | "light" | "dark", includeTree?: boolean }`）：
    - 在 `$PULSE_STATE_DIR/cards/` 下生成内联样式、无外部请求、抗 XSS 的自适应 Flexoki HTML 快照卡。
@@ -190,7 +195,7 @@ agy-pulse doctor [--json] [--state-dir <path>]
 
 ## 5. `$PULSE_STATE_DIR/config.json` 配置参考
 
-状态目录按以下优先级解析：`ANTIGRAVITY_PULSE_STATE_DIR` ➔ `PLUGIN_DATA` ➔ `~/.gemini/antigravity/pulse-state`（目录权限 `0700`，JSON 文件权限 `0600`）。
+状态目录按以下优先级解析：`ANTIGRAVITY_PULSE_STATE_DIR` ➔ `PLUGIN_DATA` ➔ `<ANTIGRAVITY_APP_DATA_DIR || ANTIGRAVITY_DATA_DIR || ~/.gemini/antigravity>/plugin_data/antigravity-pulse`（默认 `~/.gemini/antigravity/plugin_data/antigravity-pulse`，与宿主 `PLUGIN_DATA` 完全对齐，`D-011`；目录权限 `0700`，JSON 文件权限 `0600`）。
 
 | 配置键路径 | 类型 / 可选值 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |

@@ -1353,6 +1353,7 @@ describe('sidecar/telemetry-engine & server — /api/timeline, /api/fleet, live-
         ANTIGRAVITY_SIDECAR_WEB_PORT: '0',
         ANTIGRAVITY_SIDECAR_UI_TOKEN: uiToken,
         ANTIGRAVITY_PULSE_STATE_DIR: stateDir,
+        ANTIGRAVITY_APP_DATA_DIR: agyDir,
         ANTIGRAVITY_DATA_DIR: agyDir,
         ANTIGRAVITY_CONVERSATION_ID: ROOT_CID,
       },

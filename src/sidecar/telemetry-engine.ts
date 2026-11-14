@@ -227,6 +227,7 @@ export class TelemetryEngine {
     this.statePaths = options.statePaths ?? getStatePaths(options.stateDir);
     this.antigravityDataDir =
       options.antigravityDataDir?.trim() ||
+      process.env.ANTIGRAVITY_APP_DATA_DIR?.trim() ||
       process.env.ANTIGRAVITY_DATA_DIR?.trim() ||
       path.join(os.homedir(), '.gemini', 'antigravity');
     this.onWarning = options.onWarning;

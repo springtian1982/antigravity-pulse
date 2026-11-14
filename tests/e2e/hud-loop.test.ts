@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { ReadOnlyLsClient } from '../../src/rpc/ls-client';
 import { TelemetryEngine } from '../../src/sidecar/telemetry-engine';
 import type {
@@ -373,9 +374,16 @@ async function startRealSidecarProcess(env: Record<string, string>): Promise<{
   const serverEntry = path.join(REPO_ROOT, 'sidecars', 'pulse_cockpit', 'dist', 'server.mjs');
   assert.ok(existsSync(serverEntry), `Expected built sidecar server at ${serverEntry}`);
 
+  const childEnv: NodeJS.ProcessEnv = { ...process.env };
+  delete childEnv.ANTIGRAVITY_APP_DATA_DIR;
+  delete childEnv.ANTIGRAVITY_DATA_DIR;
+  delete childEnv.PLUGIN_DATA;
+  delete childEnv.CLAUDE_PLUGIN_DATA;
+  Object.assign(childEnv, env);
+
   const child: ChildProcess = spawn(process.execPath, ['--import', loaderPath, serverEntry], {
     cwd: REPO_ROOT,
-    env: { ...process.env, ...env },
+    env: childEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -655,6 +663,62 @@ describe('Stage 1 HUD loop & SidecarApp E2E', () => {
     } finally {
       engine.stop();
       await mockLs.close();
+    }
+  });
+
+  it('watchBundleForRestart detects atomic tmp + renameSync bundle replacement once and cleans up cleanly', async () => {
+    const loaderPath = resolveSidecarLoader();
+    await import(pathToFileURL(loaderPath).href);
+    const serverEntry = path.join(REPO_ROOT, 'sidecars', 'pulse_cockpit', 'dist', 'server.mjs');
+    assert.ok(existsSync(serverEntry), `Expected built sidecar server at ${serverEntry}`);
+
+    type ServerModule = typeof import('../../src/sidecar/server');
+    const { watchBundleForRestart } = (await import(
+      pathToFileURL(serverEntry).href
+    )) as ServerModule;
+
+    const tmpRoot = mkdtempSync(path.join(os.tmpdir(), 'pulse-bundle-watch-'));
+    cleanupDirs.push(tmpRoot);
+
+    const bundlePath = path.join(tmpRoot, 'server.mjs');
+    writeFileSync(bundlePath, '// initial bundle v1\n', 'utf8');
+
+    let calls = 0;
+    const stopWatch = watchBundleForRestart(
+      bundlePath,
+      () => {
+        calls += 1;
+      },
+      30
+    );
+
+    try {
+      const tmpReplacement = `${bundlePath}.tmp`;
+      writeFileSync(tmpReplacement, '// updated bundle v2 with new size and inode\n', 'utf8');
+      renameSync(tmpReplacement, bundlePath);
+
+      const deadlineMs = Date.now() + 1500;
+      while (calls === 0 && Date.now() < deadlineMs) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert.equal(calls, 1);
+
+      // Wait across several more poll ticks to confirm callback fires at most once
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      assert.equal(calls, 1);
+
+      // Missing bundle path returns a safe no-op cleanup
+      const stopMissing = watchBundleForRestart(
+        path.join(tmpRoot, 'nonexistent-bundle.mjs'),
+        () => {
+          calls += 1;
+        },
+        30
+      );
+      stopMissing();
+      assert.equal(calls, 1);
+    } finally {
+      stopWatch();
     }
   });
 });

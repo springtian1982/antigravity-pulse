@@ -17,16 +17,16 @@
 | :--- | :--- |
 | [PRODUCT_DESIGN.md](docs/PRODUCT_DESIGN.md) & [DESIGN.md](DESIGN.md) | Canonical PRD v1.0, JTBD, UX specs, Flexoki Light/Dark tokens (`D-008`), host boundaries |
 | [00_MASTER_IMPLEMENTATION_BLUEPRINT.md](docs/plans/00_MASTER_IMPLEMENTATION_BLUEPRINT.md) | Stage 0–3 DAG, frozen directory tree (§2), `src/types/telemetry.ts` & bus schemas (§3), lock table (§4), RTM (§5), commit ledger (§6) |
-| [DECISION_LOG.md](docs/plans/DECISION_LOG.md) | Append-only architectural decisions (`D-001`–`D-010`); log `[CONTRACT_CHANGE_REQUEST]` trade-offs here |
-| [LESSONS_LEARNED.md](docs/plans/LESSONS_LEARNED.md) | Mandatory pre-read empirical pitfall ledger (`L-001`–`L-021`) |
-| [STAGE_0_AUDIT.md](docs/plans/STAGE_0_AUDIT.md) – [STAGE_3_AUDIT.md](docs/plans/STAGE_3_AUDIT.md) | Independent stage audit records (`5ca47d4`, `bbf1a68`, `71a621f`, `4064b48`) |
+| [DECISION_LOG.md](docs/plans/DECISION_LOG.md) | Append-only architectural decisions (`D-001`–`D-011`); log `[CONTRACT_CHANGE_REQUEST]` trade-offs here |
+| [LESSONS_LEARNED.md](docs/plans/LESSONS_LEARNED.md) | Mandatory pre-read empirical pitfall ledger (`L-001`–`L-022`) |
+| [STAGE_0_AUDIT.md](docs/plans/STAGE_0_AUDIT.md) – [FINAL_ACCEPTANCE_AUDIT_REPORT.md](docs/plans/FINAL_ACCEPTANCE_AUDIT_REPORT.md) | Independent stage & final acceptance audit records (`5ca47d4`, `bbf1a68`, `71a621f`, `4064b48`, `99fbaa3`) |
 | [architecture.md](docs/developer-guide/architecture.md) & [contributing.md](docs/developer-guide/contributing.md) | Shipped `src/` module architecture, dual-channel pipeline, build/test/Mermaid/PR gates |
 
 ## 3. Repository & Distribution Boundary Map
 
 - **Workspace-Only Governance (NEVER shipped in plugin)**:
   - `AGENTS.md` — L1 repo router (this file, `< 9,000 B`, no YAML frontmatter).
-  - [architecture-and-guardrails.md](.agents/rules/architecture-and-guardrails.md) — L2 `always_on` guardrails, canonical primitives map, `D-001`–`D-010` & `L-001`–`L-021` rules (`< 9,000 B`).
+  - [architecture-and-guardrails.md](.agents/rules/architecture-and-guardrails.md) — L2 `always_on` guardrails, canonical primitives map, `D-001`–`D-011` & `L-001`–`L-022` rules (`< 9,000 B`).
   - [SKILL.md](.agents/skills/pulse-dev-workflow/SKILL.md) — L3 contributor build/test/release SOP (`pulse-dev-workflow`, `< 18,000 B`).
   - [verify-context.mjs](scripts/verify-context.mjs) — Zero-dep ESM context budget, frontmatter, `.gitignore` & strict path/link verifier.
 - **Distributed Plugin Surface** (packaged via [package.json](package.json) `"files"` & `scripts/install.mjs`):
@@ -48,7 +48,7 @@ npm run typecheck
 # Compile 5 zero-dep bundles (dist/* & sidecars/pulse_cockpit/dist/*) with SPDX MIT headers
 npm run build
 
-# Build & run full node:test suite (108 functional tests in parallel + 2 sequential calibrated hook benchmarks, D-009/D-010)
+# Build & run full node:test suite (109 functional tests in parallel + 2 sequential calibrated hook benchmarks, D-009/D-010)
 npm test
 
 # Strict context governance: byte budgets, YAML frontmatter, .gitignore (D-005), zero rules/ (D-007), links & 100% on-disk paths

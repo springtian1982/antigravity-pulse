@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import type { Server } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -259,6 +259,45 @@ export async function createPulseSidecarServer(
   };
 }
 
+export function watchBundleForRestart(
+  bundlePath: string,
+  onBundleChanged: () => void,
+  pollMs = 3000
+): () => void {
+  let initialSig = '';
+  try {
+    const st = statSync(bundlePath);
+    initialSig = `${st.ino}:${st.mtimeMs}:${st.size}`;
+  } catch {
+    return () => {};
+  }
+
+  const safePollMs = Number.isFinite(pollMs) ? Math.max(10, pollMs) : 3000;
+  let stopped = false;
+  const timer = setInterval(() => {
+    if (stopped) {
+      return;
+    }
+    try {
+      const st = statSync(bundlePath);
+      const sig = `${st.ino}:${st.mtimeMs}:${st.size}`;
+      if (sig !== initialSig) {
+        stopped = true;
+        clearInterval(timer);
+        onBundleChanged();
+      }
+    } catch {
+      // Ignore transient ENOENT while atomic renameSync is in flight
+    }
+  }, safePollMs);
+  timer.unref?.();
+
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+}
+
 function isServerEntryPoint(): boolean {
   const argv1 = process.argv[1];
   if (!argv1) {
@@ -276,15 +315,41 @@ function isServerEntryPoint(): boolean {
 }
 
 if (isServerEntryPoint()) {
+  const selfBundlePath = realpathSync(process.argv[1]);
   createPulseSidecarServer({ autoStartEngine: false })
     .then(async (handle) => {
+      let shuttingDown = false;
+      let stopBundleWatch: () => void = () => {};
+      let restartTimer: ReturnType<typeof setTimeout> | null = null;
+
       const shutdown = () => {
+        if (shuttingDown) {
+          return;
+        }
+        shuttingDown = true;
+        stopBundleWatch();
+        if (restartTimer) {
+          clearTimeout(restartTimer);
+          restartTimer = null;
+        }
         void handle.stop().finally(() => {
           process.exit(0);
         });
       };
+
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
+      stopBundleWatch = watchBundleForRestart(
+        selfBundlePath,
+        () => {
+          restartTimer = setTimeout(() => {
+            console.log('[pulse_cockpit] Bundle updated on disk; exiting for supervisor restart.');
+            shutdown();
+          }, 400);
+          restartTimer.unref?.();
+        },
+        3000
+      );
       await handle.start();
     })
     .catch((err) => {

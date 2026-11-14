@@ -290,6 +290,7 @@ describe('Stage 1 end-to-end acceptance gate', () => {
         ANTIGRAVITY_SIDECAR_WEB_PORT: '0',
         ANTIGRAVITY_SIDECAR_UI_TOKEN: UI_TOKEN,
         ANTIGRAVITY_PULSE_STATE_DIR: stateDir,
+        ANTIGRAVITY_APP_DATA_DIR: agyDir,
         ANTIGRAVITY_DATA_DIR: agyDir,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

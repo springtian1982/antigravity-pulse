@@ -149,3 +149,21 @@
   - [`src/state/state-dir.ts`](../../src/state/state-dir.ts) lines 24 & 141–143 (`atomicTmpSeq`, zero `node:crypto`), verified `34K` [`dist/hook-probe.cjs`](../../dist/hook-probe.cjs) with `! grep -q "node:crypto" dist/hook-probe.cjs`.
   - [`tests/benchmarks/hook-latency.test.ts`](../../tests/benchmarks/hook-latency.test.ts) lines 239–329 — post-polish `npm test` run under host load (reported by Master Orchestrator): Metric 1 (`n=100`): `median=0.376ms`, `p95=0.895ms`, `max=3.220ms` (`<= 8.0ms`); Metric 2 (`n=10` paired): `bare_median=43.388ms`, `probe_median=56.230ms`, `paired_delta_median=13.287ms` (`<= 20.0ms`), `effective_cap=63.388ms` (`<= 100.0ms`).
   - Independent isolated re-verification (`node --test .test-dist/benchmarks--hook-latency.test.cjs`, `Node v24.21.0`): Metric 1 (`n=100`): `median=0.193ms`, `p95=0.679ms`, `max=1.507ms`; Metric 2 (`n=10` paired): `bare_median=33.759ms`, `probe_median=45.891ms`, `paired_delta_median=11.137ms`, `effective_cap=53.759ms`, `p95=58.189ms`, `max=58.189ms` (`2/2` pass).
+
+---
+
+## `D-011`: `[CONTRACT_CHANGE_REQUEST]` — Unified Default `$PULSE_STATE_DIR` (`<appDataDir>/plugin_data/antigravity-pulse`) & Sidecar Bundle Hot-Upgrade Self-Restart (Refines `D-003` & `D-006`)
+
+- **Date**: 2026-11-14
+- **Stage**: MISSION II — Post-Acceptance Host-Sync Hardening
+- **Supersedes / Refines**: Refines [`D-003`](#d-003-pulse_state_dir-atomic-snapshot-bus-for-cross-process-telemetry-sharing) (`$PULSE_STATE_DIR` default fallback path) and [`D-006`](#d-006-inode-preserving-atomic-global-installer-scriptsinstallmjs) (live Sidecar upgrade lifecycle)
+- **Context**:
+  1. Antigravity 2.0 injects `PLUGIN_DATA=~/.gemini/antigravity/plugin_data/antigravity-pulse` into spawned Hook, MCP, and Sidecar processes, whereas standalone `agy-pulse` user shells lacked `PLUGIN_DATA` and previously fell back to `~/.gemini/antigravity/pulse-state` (split-brain state bus). In addition, `TelemetryEngine` checked `ANTIGRAVITY_DATA_DIR` without checking `ANTIGRAVITY_APP_DATA_DIR` first.
+  2. While `D-006` atomic `tmp + renameSync` upgrades preserve directory inodes without crashing active processes, a previously launched `pulse_cockpit` Sidecar daemon kept executing stale pre-upgrade V8 code in memory (e.g., an initial Stage 0 stub returning `etag: "stage0"` and `hostConnected: false`, rendered in `/hud` as `"Idle · 未检测到活跃会话 / Language Server 未连接"`).
+- **Options Considered**:
+  1. Require users to export `ANTIGRAVITY_PULSE_STATE_DIR` manually in external shells and manually restart Antigravity after every `npm run install:global`.
+  2. Update `resolveStateDir()` in [`src/state/state-dir.ts`](../../src/state/state-dir.ts) to fall back to `<ANTIGRAVITY_APP_DATA_DIR || ANTIGRAVITY_DATA_DIR || ~/.gemini/antigravity>/plugin_data/antigravity-pulse`, check `ANTIGRAVITY_APP_DATA_DIR` before `ANTIGRAVITY_DATA_DIR` in [`src/sidecar/telemetry-engine.ts`](../../src/sidecar/telemetry-engine.ts), and export `watchBundleForRestart()` in [`src/sidecar/server.ts`](../../src/sidecar/server.ts) (`3000ms` `.unref()` `statSync` polling on `server.mjs` `ino:mtimeMs:size`, triggering a `400ms` deferred clean `shutdown()` so `"restart_policy": "always"` respawns updated bundles automatically).
+- **Chosen Decision & Rationale**: Adopt **Option 2**. Unifies standalone CLI and host-spawned `PLUGIN_DATA` paths out of the box with zero shell configuration, and ensures atomic `scripts/install.mjs` bundle updates automatically cycle long-lived `pulse_cockpit` daemons cleanly within `~3.4s` without `ENOENT` races.
+- **Verification Evidence**:
+  - [`src/state/state-dir.ts`](../../src/state/state-dir.ts) lines 102–116; [`src/sidecar/telemetry-engine.ts`](../../src/sidecar/telemetry-engine.ts) lines 228–232; [`src/sidecar/server.ts`](../../src/sidecar/server.ts) lines 262–353.
+  - [`tests/unit/state-dir.test.ts`](../../tests/unit/state-dir.test.ts) lines 49–96 & [`tests/e2e/hud-loop.test.ts`](../../tests/e2e/hud-loop.test.ts) lines 377–380, 669–723 (`109/109` functional tests + `2/2` calibrated `hook-latency` benchmarks pass; [`dist/hook-probe.cjs`](../../dist/hook-probe.cjs) preserves zero `node:crypto`).

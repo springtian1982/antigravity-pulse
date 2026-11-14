@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT | Copyright (c) 2026 springtian <springtian@gmail.com> */
 
 // src/sidecar/server.ts
-import { existsSync as existsSync4, readFileSync as readFileSync3, realpathSync } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync3, realpathSync, statSync as statSync3 } from "node:fs";
 import path4 from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Response, SidecarApp } from "sidecar_sdk";
@@ -37,7 +37,8 @@ function resolveStateDir(overrideDir) {
   const trimmedOverride = overrideDir?.trim();
   const envStateDir = process.env.ANTIGRAVITY_PULSE_STATE_DIR?.trim();
   const pluginData = process.env.PLUGIN_DATA?.trim();
-  const chosen = trimmedOverride || envStateDir || pluginData || path.join(os.homedir(), ".gemini", "antigravity", "pulse-state");
+  const appDataDir = process.env.ANTIGRAVITY_APP_DATA_DIR?.trim() || process.env.ANTIGRAVITY_DATA_DIR?.trim() || path.join(os.homedir(), ".gemini", "antigravity");
+  const chosen = trimmedOverride || envStateDir || pluginData || path.join(appDataDir, "plugin_data", "antigravity-pulse");
   return path.resolve(chosen);
 }
 function getStatePaths(overrideDir) {
@@ -3003,7 +3004,7 @@ var TelemetryEngine = class {
   constructor(options = {}) {
     this.lsClient = options.lsClient ?? new ReadOnlyLsClient();
     this.statePaths = options.statePaths ?? getStatePaths(options.stateDir);
-    this.antigravityDataDir = options.antigravityDataDir?.trim() || process.env.ANTIGRAVITY_DATA_DIR?.trim() || path3.join(os2.homedir(), ".gemini", "antigravity");
+    this.antigravityDataDir = options.antigravityDataDir?.trim() || process.env.ANTIGRAVITY_APP_DATA_DIR?.trim() || process.env.ANTIGRAVITY_DATA_DIR?.trim() || path3.join(os2.homedir(), ".gemini", "antigravity");
     this.onWarning = options.onWarning;
     this.enableSqliteFallback = Boolean(options.enableSqliteFallback);
     this.initialConfigPatch = options.initialConfig;
@@ -3936,6 +3937,38 @@ async function createPulseSidecarServer(options = {}) {
     }
   };
 }
+function watchBundleForRestart(bundlePath, onBundleChanged, pollMs = 3e3) {
+  let initialSig = "";
+  try {
+    const st = statSync3(bundlePath);
+    initialSig = `${st.ino}:${st.mtimeMs}:${st.size}`;
+  } catch {
+    return () => {
+    };
+  }
+  const safePollMs = Number.isFinite(pollMs) ? Math.max(10, pollMs) : 3e3;
+  let stopped = false;
+  const timer = setInterval(() => {
+    if (stopped) {
+      return;
+    }
+    try {
+      const st = statSync3(bundlePath);
+      const sig = `${st.ino}:${st.mtimeMs}:${st.size}`;
+      if (sig !== initialSig) {
+        stopped = true;
+        clearInterval(timer);
+        onBundleChanged();
+      }
+    } catch {
+    }
+  }, safePollMs);
+  timer.unref?.();
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+}
 function isServerEntryPoint() {
   const argv1 = process.argv[1];
   if (!argv1) {
@@ -3949,14 +3982,39 @@ function isServerEntryPoint() {
   }
 }
 if (isServerEntryPoint()) {
+  const selfBundlePath = realpathSync(process.argv[1]);
   createPulseSidecarServer({ autoStartEngine: false }).then(async (handle) => {
+    let shuttingDown = false;
+    let stopBundleWatch = () => {
+    };
+    let restartTimer = null;
     const shutdown = () => {
+      if (shuttingDown) {
+        return;
+      }
+      shuttingDown = true;
+      stopBundleWatch();
+      if (restartTimer) {
+        clearTimeout(restartTimer);
+        restartTimer = null;
+      }
       void handle.stop().finally(() => {
         process.exit(0);
       });
     };
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
+    stopBundleWatch = watchBundleForRestart(
+      selfBundlePath,
+      () => {
+        restartTimer = setTimeout(() => {
+          console.log("[pulse_cockpit] Bundle updated on disk; exiting for supervisor restart.");
+          shutdown();
+        }, 400);
+        restartTimer.unref?.();
+      },
+      3e3
+    );
     await handle.start();
   }).catch((err) => {
     console.error("[pulse_cockpit] Fatal startup error:", err);
@@ -3965,5 +4023,6 @@ if (isServerEntryPoint()) {
 }
 export {
   STRICT_CSP,
-  createPulseSidecarServer
+  createPulseSidecarServer,
+  watchBundleForRestart
 };

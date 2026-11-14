@@ -46,15 +46,31 @@ afterEach(() => {
 });
 
 describe('state-dir resolution, atomicity, permissions, UUIDs & ring rotation', () => {
-  it('resolves $PULSE_STATE_DIR priority: override > ANTIGRAVITY_PULSE_STATE_DIR > PLUGIN_DATA > homedir fallback', () => {
+  it('resolves $PULSE_STATE_DIR priority: override > ANTIGRAVITY_PULSE_STATE_DIR > PLUGIN_DATA > ANTIGRAVITY_APP_DATA_DIR/plugin_data', () => {
     const prevPulse = process.env.ANTIGRAVITY_PULSE_STATE_DIR;
     const prevPluginData = process.env.PLUGIN_DATA;
+    const prevAppData = process.env.ANTIGRAVITY_APP_DATA_DIR;
+    const prevDataDir = process.env.ANTIGRAVITY_DATA_DIR;
     try {
       delete process.env.ANTIGRAVITY_PULSE_STATE_DIR;
       delete process.env.PLUGIN_DATA;
+      delete process.env.ANTIGRAVITY_APP_DATA_DIR;
+      delete process.env.ANTIGRAVITY_DATA_DIR;
       assert.equal(
         resolveStateDir(),
-        path.join(os.homedir(), '.gemini', 'antigravity', 'pulse-state')
+        path.join(os.homedir(), '.gemini', 'antigravity', 'plugin_data', 'antigravity-pulse')
+      );
+
+      process.env.ANTIGRAVITY_DATA_DIR = '/tmp/agy-data-dir';
+      assert.equal(
+        resolveStateDir(),
+        path.join(path.resolve('/tmp/agy-data-dir'), 'plugin_data', 'antigravity-pulse')
+      );
+
+      process.env.ANTIGRAVITY_APP_DATA_DIR = '/tmp/agy-app-data-dir';
+      assert.equal(
+        resolveStateDir(),
+        path.join(path.resolve('/tmp/agy-app-data-dir'), 'plugin_data', 'antigravity-pulse')
       );
 
       process.env.PLUGIN_DATA = '/tmp/plugin-data-dir';
@@ -70,6 +86,12 @@ describe('state-dir resolution, atomicity, permissions, UUIDs & ring rotation', 
 
       if (prevPluginData === undefined) delete process.env.PLUGIN_DATA;
       else process.env.PLUGIN_DATA = prevPluginData;
+
+      if (prevAppData === undefined) delete process.env.ANTIGRAVITY_APP_DATA_DIR;
+      else process.env.ANTIGRAVITY_APP_DATA_DIR = prevAppData;
+
+      if (prevDataDir === undefined) delete process.env.ANTIGRAVITY_DATA_DIR;
+      else process.env.ANTIGRAVITY_DATA_DIR = prevDataDir;
     }
   });
 

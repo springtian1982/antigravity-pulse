@@ -4,11 +4,11 @@
 
 ---
 
-## 1. 模块分层与跨进程原子状态总线（`$PULSE_STATE_DIR`，`D-003`）
+## 1. 模块分层与跨进程原子状态总线（`$PULSE_STATE_DIR`，`D-003` / `D-011`）
 
 由于 `dist/hook-probe.cjs`、`agy-pulse` CLI（`dist/cli.cjs`）与 MCP 服务（`dist/mcp.cjs`）均作为独立操作系统进程运行在常驻 `pulse_cockpit` Sidecar（`sidecars/pulse_cockpit/dist/server.mjs`）之外，且外部终端不一定持有宿主注入的 `ANTIGRAVITY_LS_ADDRESS` / `ANTIGRAVITY_CSRF_TOKEN` 环境变量，系统以本地受限权限目录 **`$PULSE_STATE_DIR`** 作为跨进程无锁共享总线：
 
-- **目录解析优先级（`src/state/state-dir.ts`）**：`ANTIGRAVITY_PULSE_STATE_DIR` ➔ `PLUGIN_DATA` ➔ `~/.gemini/antigravity/pulse-state`（目录权限 `0700`，JSON 状态文件权限 `0600`）。
+- **目录解析优先级（`src/state/state-dir.ts`）**：`ANTIGRAVITY_PULSE_STATE_DIR` ➔ `PLUGIN_DATA` ➔ `<ANTIGRAVITY_APP_DATA_DIR || ANTIGRAVITY_DATA_DIR || ~/.gemini/antigravity>/plugin_data/antigravity-pulse`（与宿主默认 `PLUGIN_DATA` 路径完全一致，`D-011`；目录权限 `0700`，JSON 状态文件权限 `0600`）。`TelemetryEngine` 同时优先读取 `ANTIGRAVITY_APP_DATA_DIR` 再回退 `ANTIGRAVITY_DATA_DIR`。
 - **无 OpenSSL 原子写与环形日志轮转**：`writeJsonAtomic` 采用单调序列后缀 `${process.pid}.${process.hrtime.bigint().toString(36)}.${atomicTmpSeq.toString(36)}` 生成同目录临时文件后执行原子 `renameSync`（刻意避免引入 `node:crypto` 以消除 `~8.3ms` OpenSSL 冷启动开销，`D-010` / `L-020`）；`events.ring.jsonl` 由 Hook 探针通过单行 `appendFileSync`（`O_APPEND`）追加，由 Sidecar 守护进程在超过 `512 KiB` 时原子轮转为 `events.ring.prev.jsonl`。
 
 ```mermaid
@@ -72,7 +72,7 @@ flowchart TB
 | `src/core/topology-builder.ts`、`timeline-builder.ts`、`fleet-builder.ts`、`etag.ts` | 三源派生树融合、逆序 `TTFT`/`Streaming` 火焰轴构建、跨项目舰队与 Top 5 消耗榜聚合、剔除易变时间戳的确定性 `34B` ETag 计算 |
 | `src/core/formatters.ts` | 紧凑时长/Token 格式化、`smart` 内联微章 Markdown 生成与统一 HTML/Markdown XSS 转义 |
 | `src/hook/hook-probe.ts` | 零网络、零 OpenSSL 极速 Hook 处理器与按轮次去重的 `smart`/`every-turn`/`off` 微章引擎 |
-| `src/sidecar/telemetry-engine.ts` & `server.ts` | 增量 RPC 轮询调度、状态总线发布、`SidecarApp` `Response` 显式 MIME/CSP/HTTP `400` 封装（`L-007`） |
+| `src/sidecar/telemetry-engine.ts` & `server.ts` | 增量 RPC 轮询调度、状态总线发布、`SidecarApp` `Response` 显式 MIME/CSP/HTTP `400` 封装（`L-007`）以及 `watchBundleForRestart` 原子升级自重启守卫（`D-011` / `L-022`） |
 | `src/ui/state.ts`、`hud-view.ts`、`fleet-view.ts`、`main.ts` | 窄侧栏（`360px`）自适应 Flexoki 双极性 `/hud`、`/fleet` 与 `Timeline` 前端渲染引擎 |
 | `src/cli/snapshot-reader.ts`、`status-formatter.ts`、`top-tui.ts`、`main.ts` | 状态总线与可选 `--live` RPC 读取、`waybar`/`tmux`/`json`/`text`（含 `--watch`）、CJK 宽字符对齐 `top` TUI（`L-018`）、`config` 与 `doctor` |
 | `src/mcp/server.ts` & `src/mcp/embed-card.ts` | 双帧协议（`NDJSON` + UTF-8 `Content-Length`）JSON-RPC 2.0 服务与无脚本 Flexoki `<agent-embed>` 卡片生成器 |
@@ -154,6 +154,7 @@ sequenceDiagram
 - 单一 `pulse_cockpit` 进程同时挂载 `/`（别名指向 `/hud`，`D-002`）、`/hud`（`AUX_PANE`）与 `/fleet`（`SIDEBAR`），共享内存态拓扑图与配额缓存。
 - 鉴于宿主 `sidecar_sdk` 的 `SidecarApp.page()` 默认将非 `.js` 路由响应为 `text/html`，且在 `SidecarApp.api()` 内抛出异常会一律变为 HTTP `500`（`L-007`），`server.ts` 显式导入 `sidecar_sdk` 的 `Response` 类包装 `/styles.css`（`text/css`）、`/dist/ui.js`（`application/javascript`）、HTML 页面（附带严格 CSP 头：`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors *`）以及所有客户端参数校验错误的 HTTP `400` JSON 响应。
 - `/api/hud`、`/api/timeline` 与 `/api/fleet` 使用 `src/core/etag.ts` 对剔除易变计时字段后的语义快照计算确定性 ETag；当客户端传入的 `etag` 命中时，仅返回 **34 字节** `{"unchanged":true,"etag":"..."}`，大幅降低空闲与稳态轮询时的序列化与 DOM 重绘开销。
+- **原子覆盖升级热自重启（`watchBundleForRestart`，`D-011` / `L-022`）**：`server.ts` 在入口启动时通过 `.unref()` 定时器每 `3000ms` 轮询自身 `server.mjs` 的 `ino:mtimeMs:size` 签名；一旦检测到 `scripts/install.mjs`（`D-006`）完成同目录 `tmp + renameSync` 覆盖更新，延迟 `400ms` 执行优雅 `shutdown()`，配合 `sidecar.json` 的 `"restart_policy": "always"` 由宿主无缝拉起新版本 V8 实例。
 
 ### 4.2 零依赖双帧协议 MCP 服务（`src/mcp/server.ts` & `embed-card.ts`）
 
